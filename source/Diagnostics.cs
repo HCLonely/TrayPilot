@@ -37,12 +37,13 @@ internal static class Diagnostics
                 };
                 Application.Run(form); return 0;
             }
-            if (args[0] is "--preview" or "--preview-grid" or "--preview-en" or "--preview-tray-en" && args.Length == 2)
+            if (args[0] is "--preview" or "--preview-grid" or "--preview-en" or "--preview-tray-en" or "--preview-small-en" && args.Length == 2)
             {
                 var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "preview-state");
                 var previewController = new Controller(folder);
                 if (args[0].EndsWith("-en")) previewController.Saved.Language = "en-US";
                 using var form = new MainForm(previewController);
+                if (args[0] == "--preview-small-en") form.Size = form.MinimumSize;
                 if (args[0] == "--preview-grid")
                     ((RadioButton)typeof(MainForm).GetField("layoutMode", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(form)!).Checked = true;
                 var timer = new System.Windows.Forms.Timer { Interval = 3000 };
@@ -152,7 +153,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.3.1 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.4 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }

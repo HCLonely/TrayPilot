@@ -23,6 +23,8 @@ internal sealed partial class MainForm
         }
         Capture(this);
         columnCaptions.AddRange(list.Columns.Cast<ColumnHeader>().Select(x => x.Text));
+        menuBar.BackColor = Color.White; menuBar.ForeColor = UiTheme.Ink;
+        menuBar.Padding = new(24, 6, 24, 6); menuBar.RenderMode = ToolStripRenderMode.Professional;
         Controls.Add(menuBar); MainMenuStrip = menuBar;
         ApplyLanguage();
         trayMenu.Opening += (_, _) => BuildTrayMenu();
@@ -51,7 +53,6 @@ internal sealed partial class MainForm
         for (int i = 0; i < columnCaptions.Count; i++) list.Columns[i].Text = L.T(columnCaptions[i]);
         while (menuBar.Items.Count > 0) { var item = menuBar.Items[0]; menuBar.Items.RemoveAt(0); item.Dispose(); }
         menuBar.Items.Add(L.T("设置"), null, (_, _) => ShowSettings());
-        menuBar.Items.Add(L.T("快捷管理"), null, (_, _) => ShowMainMenu());
         menuBar.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
         menuBar.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
         RenderList(); UpdateStatus();

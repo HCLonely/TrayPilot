@@ -1,4 +1,4 @@
-# TrayPilot 0.3.1
+# TrayPilot 0.4
 
 Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installation is required. Keep the adjacent `app/languages` folder when moving or distributing the application.
 

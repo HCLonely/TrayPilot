@@ -108,6 +108,7 @@
     "显示本程序托盘图标": "Show TrayPilot tray icon",
     "快捷管理菜单快捷键": "Quick controls hotkey",
     "打开主界面快捷键": "Open main window hotkey",
-    "按 Ctrl 或 Alt 加其他键设置快捷键。隐藏本程序图标后，可再次运行程序打开主界面。": "Press Ctrl or Alt with another key. Run TrayPilot again to reopen the window when its tray icon is hidden."
+    "按 Ctrl 或 Alt 加其他键设置快捷键。隐藏本程序图标后，可再次运行程序打开主界面。": "Press Ctrl or Alt with another key. Run TrayPilot again to reopen the window when its tray icon is hidden.",
+    "搜索": "Search"
   }
 }

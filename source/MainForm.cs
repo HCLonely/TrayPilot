@@ -3,7 +3,7 @@ internal sealed partial class MainForm : Form
 {
     readonly Controller controller;
     readonly TextBox search = new() { PlaceholderText = "搜索软件名称、进程或路径", Width = 280 };
-    readonly ListView list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false };
+    readonly ListView list = new SmoothListView() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false };
     readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
     readonly System.Windows.Forms.Timer timer = new() { Interval = 2500 };
     readonly FlowLayoutPanel actions = new() { Dock = DockStyle.Fill, WrapContents = false, AutoSize = true };
@@ -17,28 +17,64 @@ internal sealed partial class MainForm : Form
     {
         this.controller = controller;
         L.Set(controller.Saved.Language);
-        Text = "TrayPilot · 托盘图标管理"; Width = 1180; Height = 700; MinimumSize = new(1020, 520);
-        StartPosition = FormStartPosition.CenterScreen; Font = new("Microsoft YaHei UI", 10); BackColor = Color.FromArgb(247, 249, 252);
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(24), ColumnCount = 1, RowCount = 7 };
-        layout.RowStyles.Add(new(SizeType.Absolute, 45)); layout.RowStyles.Add(new(SizeType.Absolute, 44));
-        layout.RowStyles.Add(new(SizeType.Absolute, 46)); layout.RowStyles.Add(new(SizeType.Absolute, 40)); layout.RowStyles.Add(new(SizeType.Percent, 100));
-        layout.RowStyles.Add(new(SizeType.Absolute, 42)); layout.RowStyles.Add(new(SizeType.Absolute, 36));
-        layout.Controls.Add(new Label { Text = "让托盘只留下需要的图标", Font = new(Font.FontFamily, 19, FontStyle.Bold), Dock = DockStyle.Fill }, 0, 0);
-        layout.Controls.Add(new Label { Text = "双击切换显示 / 隐藏；右键查看属性或结束任务。淡色表示隐藏，悬停查看详情。", Dock = DockStyle.Fill, ForeColor = Color.FromArgb(80, 90, 105) }, 0, 1);
-        actions.Controls.Add(search);
+        Text = "TrayPilot · 托盘图标管理"; Width = 1180; Height = 760; MinimumSize = new(1020, 620);
+        StartPosition = FormStartPosition.CenterScreen; Font = new("Microsoft YaHei UI", 9.5f);
+        BackColor = UiTheme.Canvas; ForeColor = UiTheme.Ink;
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(28, 20, 28, 12), ColumnCount = 1, RowCount = 7 };
+        layout.RowStyles.Add(new(SizeType.Absolute, 50)); layout.RowStyles.Add(new(SizeType.Absolute, 34));
+        layout.RowStyles.Add(new(SizeType.Absolute, 58)); layout.RowStyles.Add(new(SizeType.Absolute, 52));
+        layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 34));
+        layout.RowStyles.Add(new(SizeType.Absolute, 26));
+        var heading = new Label { Text = "让托盘只留下需要的图标", Font = new(Font.FontFamily, 22, FontStyle.Bold),
+            Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
+        layout.Controls.Add(heading, 0, 0);
+        layout.Controls.Add(new Label { Text = "双击切换显示 / 隐藏；右键查看属性或结束任务。淡色表示隐藏，悬停查看详情。",
+            Dock = DockStyle.Fill, ForeColor = UiTheme.Muted, Margin = Padding.Empty }, 0, 1);
+        var searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = new(0, 4, 0, 10) };
+        searchRow.RowStyles.Add(new(SizeType.Percent, 100));
+        searchRow.ColumnStyles.Add(new(SizeType.Percent, 100)); searchRow.ColumnStyles.Add(new(SizeType.AutoSize)); searchRow.ColumnStyles.Add(new(SizeType.AutoSize));
+        var searchBox = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(14, 10, 14, 8), Margin = new(0, 0, 12, 0) };
+        search.BorderStyle = BorderStyle.None; search.Dock = DockStyle.Fill; search.BackColor = Color.White; search.ForeColor = UiTheme.Ink;
+        searchBox.Controls.Add(search);
+        searchBox.Controls.Add(new Label { Text = "搜索", Dock = DockStyle.Left, Width = 62, ForeColor = UiTheme.Muted, BackColor = Color.White });
+        searchRow.Controls.Add(searchBox, 0, 0);
+        var refresh = UiTheme.Button("刷新"); refresh.Click += async (_, _) => { if (!busy && !closing) await RefreshAsync(); };
+        searchRow.Controls.Add(refresh, 1, 0);
+        autoRefresh.Margin = new(18, 10, 0, 0); autoRefresh.ForeColor = UiTheme.Muted;
+        searchRow.Controls.Add(autoRefresh, 2, 0); layout.Controls.Add(searchRow, 0, 2);
         AddButton("隐藏选中", () => ChangeSelected(true)); AddButton("恢复选中", () => ChangeSelected(false));
-        AddButton("刷新", async () => await RefreshAsync()); AddButton("隐藏规则", EditRules);
+        AddButton("隐藏规则", EditRules);
         AddButton("全部恢复", () => RunAction(() => { controller.Saved.HiddenPaths.Clear(); controller.Save(); controller.RestoreManaged(); }));
-        layout.Controls.Add(actions, 0, 2);
-        var options = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
-        options.Controls.Add(new Label { Text = "布局", AutoSize = true, Margin = new(0, 5, 8, 0) });
-        options.Controls.Add(new RadioButton { Text = "列表", Appearance = Appearance.Button, AutoSize = true, Checked = true });
-        options.Controls.Add(layoutMode); options.Controls.Add(autoRefresh);
-        layout.Controls.Add(options, 0, 3);
+        var commandRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
+        commandRow.ColumnStyles.Add(new(SizeType.Percent, 100)); commandRow.ColumnStyles.Add(new(SizeType.AutoSize));
+        actions.Margin = Padding.Empty; commandRow.Controls.Add(actions, 0, 0);
+        var options = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        options.Controls.Add(new Label { Text = "布局", AutoSize = true, ForeColor = UiTheme.Muted, Margin = new(0, 10, 10, 0) });
+        var listMode = new RadioButton { Text = "列表", Appearance = Appearance.Button, AutoSize = true, Checked = true };
+        UiTheme.Toggle(listMode); UiTheme.Toggle(layoutMode);
+        options.Controls.Add(listMode); options.Controls.Add(layoutMode);
+        commandRow.Controls.Add(options, 1, 0); layout.Controls.Add(commandRow, 0, 3);
         layoutMode.CheckedChanged += (_, _) => ChangeLayout();
         autoRefresh.CheckedChanged += (_, _) => { UpdateTimer(); UpdateStatus(); };
-        list.Columns.Add("软件名称", 215); list.Columns.Add("图标状态", 125); list.Columns.Add("自动隐藏", 80);
+        list.BorderStyle = BorderStyle.None; list.BackColor = Color.White; list.ForeColor = UiTheme.Ink;
+        list.OwnerDraw = true;
+        list.DrawColumnHeader += (_, e) =>
+        {
+            using var background = new SolidBrush(UiTheme.Header);
+            e.Graphics.FillRectangle(background, e.Bounds);
+            var bounds = Rectangle.Inflate(e.Bounds, -10, 0);
+            TextRenderer.DrawText(e.Graphics, e.Header!.Text, list.Font, bounds, UiTheme.Muted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
+        list.DrawItem += (_, e) => { if (list.View != View.Details) e.DrawDefault = true; };
+        list.DrawSubItem += (_, e) => e.DrawDefault = true;
+        list.Columns.Add("软件名称", 215); list.Columns.Add("图标状态", 125); list.Columns.Add("自动隐藏", 110);
         list.Columns.Add("进程", 155); list.Columns.Add("路径", 430);
+        list.SizeChanged += (_, _) =>
+        {
+            if (list.Columns.Count == 5)
+                list.Columns[4].Width = Math.Max(260 * DeviceDpi / 96, list.ClientSize.Width - list.Columns.Cast<ColumnHeader>().Take(4).Sum(x => x.Width) - SystemInformation.VerticalScrollBarWidth - 4);
+        };
         list.ShowItemToolTips = true;
         list.MouseClick += (_, e) =>
         {
@@ -50,8 +86,11 @@ internal sealed partial class MainForm : Form
             if (busy || closing || list.HitTest(e.Location).Item?.Tag is not TrayEntry entry) return;
             if (e.Button == MouseButtons.Left && ModifierKeys == Keys.None) ToggleEntry(entry);
         };
-        layout.Controls.Add(list, 0, 4); layout.Controls.Add(status, 0, 5);
-        layout.Controls.Add(new Label { Text = "关闭窗口可保留在托盘运行；选择“退出”恢复隐藏图标并结束程序。", Dock = DockStyle.Fill, ForeColor = Color.DimGray }, 0, 6);
+        var contentPanel = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(8), Margin = Padding.Empty };
+        contentPanel.Controls.Add(list); layout.Controls.Add(contentPanel, 0, 4);
+        status.ForeColor = UiTheme.Accent; status.Margin = Padding.Empty;
+        layout.Controls.Add(status, 0, 5);
+        layout.Controls.Add(new Label { Text = "关闭窗口可保留在托盘运行；选择“退出”恢复隐藏图标并结束程序。", Dock = DockStyle.Fill, ForeColor = UiTheme.Muted, Font = new(Font.FontFamily, 8.5f), Margin = Padding.Empty }, 0, 6);
         Controls.Add(layout);
         SetupShell(initialize);
         search.TextChanged += (_, _) => RenderList();
@@ -75,6 +114,7 @@ internal sealed partial class MainForm : Form
     void ChangeLayout()
     {
         list.View = layoutMode.Checked ? View.LargeIcon : View.Details;
+        foreach (ListViewItem item in list.Items) item.BackColor = list.View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : Color.White;
         if (list.View == View.LargeIcon)
         {
             int width = 120 * DeviceDpi / 96, height = 90 * DeviceDpi / 96;
@@ -84,7 +124,7 @@ internal sealed partial class MainForm : Form
     }
     void AddButton(string text, Action handler)
     {
-        var button = new Button { Text = text, AutoSize = true, Height = 32, FlatStyle = FlatStyle.System, Margin = new(8, 0, 0, 0) };
+        var button = UiTheme.Button(text, text == "隐藏选中");
         button.Click += (_, _) => { if (!busy && !closing) handler(); }; actions.Controls.Add(button);
     }
     async Task RefreshAsync()
@@ -115,7 +155,7 @@ internal sealed partial class MainForm : Form
         if (content == renderedContent) return;
         var selected = list.SelectedItems.Cast<ListViewItem>().Select(x => ((TrayEntry)x.Tag!).Key).ToHashSet();
         var topKey = list.View == View.Details ? (list.TopItem?.Tag as TrayEntry)?.Key : null;
-        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(24, 24) };
+        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(28, 28) };
         var largeImages = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(40, 40) };
         var oldImages = list.SmallImageList;
         var oldLargeImages = list.LargeImageList;
@@ -136,6 +176,7 @@ internal sealed partial class MainForm : Form
             item.SubItems.Add(L.T(entry.State == 1 ? "完全隐藏" : "正常"));
             item.SubItems.Add(L.T(controller.HasRule(entry.Path) ? "是" : "否"));
             item.SubItems.Add(System.IO.Path.GetFileName(entry.Path)); item.SubItems.Add(entry.Path);
+            item.BackColor = list.View == View.Details && list.Items.Count % 2 != 0 ? UiTheme.Stripe : Color.White;
             if (entry.State == 1) item.ForeColor = Color.FromArgb(140, 145, 155);
             list.Items.Add(item);
         }
