@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <AssemblyName>TrayPilot</AssemblyName><Version>0.5.0</Version><ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>TrayPilot</AssemblyName><Version>0.5.1</Version><ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="languages\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />

@@ -9,6 +9,8 @@ internal static class Diagnostics
     {
         try
         {
+            bool markedPreview = args[0].Contains("-marked");
+            if (markedPreview) args[0] = args[0].Replace("-marked", "");
             bool hoverPreview = args[0].Contains("-hover");
             if (hoverPreview) args[0] = args[0].Replace("-hover", "");
             bool darkPreview = args[0].Contains("-dark");
@@ -25,6 +27,7 @@ internal static class Diagnostics
                 var previewController = new Controller(folder); previewController.Saved.Language = "en-US";
                 if (args[0] == "--preview-rules-en") previewController.Saved.HiddenPaths.AddRange(Scanner.Scan().Select(x => x.Path).Distinct().Take(4));
                 if (darkPreview) previewController.Saved.Theme = "dark";
+                if (markedPreview) { previewController.Saved.HiddenPaths = Scanner.Scan().Select(x => x.Path).Distinct().Take(3).ToList(); previewController.Saved.RulesPaused = true; }
                 using var form = new MainForm(previewController, initialize: false);
                 using var capture = new System.Windows.Forms.Timer { Interval = 500 };
                 capture.Tick += (_, _) =>
@@ -50,6 +53,7 @@ internal static class Diagnostics
                 var previewController = new Controller(folder);
                 if (args[0].EndsWith("-en")) previewController.Saved.Language = "en-US";
                 if (darkPreview) previewController.Saved.Theme = "dark";
+                if (markedPreview) { previewController.Saved.HiddenPaths = Scanner.Scan().Select(x => x.Path).Distinct().Take(3).ToList(); previewController.Saved.RulesPaused = true; }
                 using var form = new MainForm(previewController);
                 if (args[0] == "--preview-small-en") form.Size = form.MinimumSize;
                 if (args[0] == "--preview-grid")
@@ -171,7 +175,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.1 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -208,8 +212,8 @@ internal static class Diagnostics
                 new object[] { new MouseEventArgs(button, clicks, bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2, 0) });
             if (button == MouseButtons.Right && clicks == 1)
             {
-                check(menu.Visible && menu.Items.Count == 3 && menu.Items[0].Text == "属性" && menu.Items[2].Text == "结束任务",
-                    "Right-click opens the manager's three-item context menu.");
+                check(menu.Visible && menu.Items.Count == 4 && menu.Items[0].Text == "属性" && menu.Items[3].Text == "结束任务",
+                    "Right-click opens the manager's four-item context menu.");
                 menu.Close();
             }
             var until = DateTime.UtcNow.AddSeconds(60);
@@ -236,7 +240,7 @@ internal static class Diagnostics
         }
         layoutMode.Checked = false;
         ClickIcon();
-        check(own.All(x => Native.State(x) == 1) && controller.HasRule(own[0].Path), "Double-clicking visible icon hides application icons and saves rule.");
+        check(own.All(x => Native.State(x) == 1) && !controller.HasRule(own[0].Path), "Double-click hides icons without adding a rule.");
         var hidden = list.Items.Cast<ListViewItem>().First(x => ((TrayEntry)x.Tag!).Key == own[0].Key);
         check(hidden.ForeColor == Color.FromArgb(140, 145, 155) && hidden.ToolTipText.Contains("已隐藏"), "Hidden row and hover details reflect hidden state.");
         foreach (bool grid in new[] { false, true })
@@ -251,6 +255,27 @@ internal static class Diagnostics
                 for (int x = Math.Max(0, bounds.Left); x < Math.Min(bitmap.Width, bounds.Right); x++)
                     if (bitmap.GetPixel(x, y).ToArgb() == UiTheme.Highlight.ToArgb()) blue++;
             check(blue > 100, "Hovered items render a blue background in both layouts.");
+            if (!grid)
+            {
+                var region = new Rectangle(list.Columns[0].Width + 3, bounds.Top, Math.Min(300, list.Width - list.Columns[0].Width - 3), bounds.Height);
+                int Before() { int count = 0; for (int y = region.Top; y < Math.Min(bitmap.Height, region.Bottom); y++) for (int x = region.Left; x < region.Right; x++) if (bitmap.GetPixel(x, y).ToArgb() == Color.White.ToArgb()) count++; return count; }
+                int textPixels = Before();
+                using (var graphics = Graphics.FromImage(bitmap))
+                    typeof(TrayListView).GetMethod("OnDrawItem", flags)!.Invoke(list, new object[] { new DrawListViewItemEventArgs(graphics, hovered, bounds, hovered.Index, (ListViewItemStates)0) });
+                check(textPixels > 0 && Before() == textPixels, "Partial row repaint preserves text in other columns.");
+            }
+            bool selectedBefore = hovered.Selected; hovered.Selected = true;
+            var next = list.Items.Cast<ListViewItem>().First(x => x != hovered); next.EnsureVisible(); Application.DoEvents();
+            var nextBounds = next.Bounds;
+            typeof(Control).GetMethod("OnMouseMove", flags)!.Invoke(list, new object[] { new MouseEventArgs(MouseButtons.None, 0, nextBounds.Left + 10, nextBounds.Top + 10, 0) });
+            using (var moved = new Bitmap(list.Width, list.Height))
+            {
+                list.DrawToBitmap(moved, list.ClientRectangle);
+                var oldBounds = hovered.Bounds;
+                check(((TrayListView)list).HoveredItem == next && moved.GetPixel(Math.Clamp(oldBounds.Left + 6, 0, moved.Width - 1), Math.Clamp(oldBounds.Top + 4, 0, moved.Height - 1)).ToArgb() != UiTheme.Highlight.ToArgb(),
+                    "Moving to another item removes the previous blue hover even if it remains selected.");
+            }
+            hovered.Selected = selectedBefore;
             typeof(Control).GetMethod("OnMouseLeave", flags)!.Invoke(list, new object[] { EventArgs.Empty });
             check(((TrayListView)list).HoveredItem == null, "Hover highlight clears when the mouse leaves.");
         }
@@ -271,7 +296,7 @@ internal static class Diagnostics
         check(list.Items.Count == 0, "Grid supports an empty search result.");
         search.Text = "";
         ClickIcon();
-        check(own.All(x => Native.State(x) == 0) && !controller.HasRule(own[0].Path), "Double-clicking hidden icon restores application icons and removes rule.");
+        check(own.All(x => Native.State(x) == 0) && !controller.HasRule(own[0].Path), "Double-click restores icons without changing rules.");
         using var fallback = TrayImages.Create(new TrayEntry { Path = "missing.exe", IconSnapshot = new byte[] { 1, 2, 3 } }, 24);
         check(Alpha(fallback) > 0, "Invalid snapshot and missing executable fall back to a visible application icon.");
         check(!refreshTimer.Enabled, "Manual actions do not restart disabled automatic refresh.");
@@ -310,6 +335,24 @@ internal static class Diagnostics
         refresh.GetAwaiter().GetResult();
         check(search.Handle == searchHandle && search.Focused == searchWasFocused && form.ActiveControl == search && search.Text == own[0].Path && search.SelectionStart == 2 && search.SelectionLength == 3
             && list.Items.Count == 2, "Refresh preserves search text, control, focus and caret, and applies the latest filter.");
+        typeof(MainForm).GetMethod("ShowItemMenu", flags)!.Invoke(form, new object[] { own[0], new Point(30, 30) });
+        check(menu.Items[2].Text == L.T("添加到命中规则") && menu.Items[2].Enabled, "Context menu offers explicit rule addition.");
+        menu.Items[2].PerformClick();
+        var ruleDeadline = DateTime.UtcNow.AddSeconds(60);
+        while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        check(controller.HasRule(own[0].Path) && own.All(x => Native.State(x) == 1), "Adding a matching rule immediately applies it when rules are active.");
+        controller.AddRule(own[0].Path.ToUpperInvariant().Replace('\\', '/'));
+        check(controller.Saved.HiddenPaths.Count(x => Controller.SamePath(x, own[0].Path)) == 1, "Equivalent case and slash variants do not create duplicate rules.");
+        check(list.Items.Cast<TrayListItem>().All(x => x.MatchesRule && x.SubItems[2].Text == L.T("✓ 命中")), "Matching items carry a persistent rule marker.");
+        typeof(MainForm).GetMethod("ChangePaths", flags)!.Invoke(form, new object[] { new[] { own[0].Path }, false });
+        controller.Apply(own);
+        check(controller.HasRule(own[0].Path) && controller.IsTemporarilyShown(own[0].Path) && own.All(x => Native.State(x) == 0), "Manual restore retains the rule and automatic refresh respects the temporary override.");
+        var commands = (FlowLayoutPanel)typeof(MainForm).GetField("actions", flags)!.GetValue(form)!;
+        commands.Controls.OfType<Button>().Single(x => x.Text == L.T("隐藏规则命中")).PerformClick();
+        ruleDeadline = DateTime.UtcNow.AddSeconds(60);
+        while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        check(!controller.IsTemporarilyShown(own[0].Path) && own.All(x => Native.State(x) == 1), "Hide matching button clears temporary overrides and reapplies saved rules.");
+        controller.RemoveRule(own[0].Path); foreach (var entry in own) controller.Show(entry);
         autoRefresh.Checked = true;
         check(refreshTimer.Enabled, "Automatic refresh can be enabled again.");
         autoRefresh.Checked = false;
@@ -328,7 +371,7 @@ internal static class Diagnostics
         typeof(MainForm).GetMethod("RenderList", flags)!.Invoke(form, null);
         typeof(MainForm).GetMethod("ShowItemMenu", flags)!.Invoke(form, new object[] { own[0], new Point(30, 30) });
         var menu = (ContextMenuStrip)typeof(MainForm).GetField("itemMenu", flags)!.GetValue(form)!;
-        menu.Items[2].PerformClick();
+        menu.Items[3].PerformClick();
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(1); }
         var list = (ListView)typeof(MainForm).GetField("list", flags)!.GetValue(form)!;

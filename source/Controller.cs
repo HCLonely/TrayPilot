@@ -20,6 +20,7 @@ internal sealed class SavedState
 internal sealed class Controller
 {
     readonly string file;
+    readonly HashSet<string> manuallyShown = new(StringComparer.OrdinalIgnoreCase);
     internal SavedState Saved { get; }
     internal Controller(string folder)
     {
@@ -28,36 +29,80 @@ internal sealed class Controller
         // Never silently discard an unreadable recovery journal.
         Saved = File.Exists(file) ? JsonSerializer.Deserialize<SavedState>(File.ReadAllText(file)) ?? throw new IOException(L.T("设置文件为空。")) : new();
     }
-    internal bool HasRule(string path) => Saved.HiddenPaths.Contains(path, StringComparer.OrdinalIgnoreCase);
+    internal static string NormalizePath(string path)
+    {
+        try { return Path.GetFullPath(path.Trim()).Replace('/', '\\'); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return path.Trim(); }
+    }
+    internal static bool SamePath(string first, string second) => string.Equals(NormalizePath(first), NormalizePath(second), StringComparison.OrdinalIgnoreCase);
+    internal bool HasRule(string path) => Saved.HiddenPaths.Any(x => SamePath(x, path));
+    internal bool IsTemporarilyShown(string path) => manuallyShown.Contains(NormalizePath(path));
+    internal void SetManualVisibility(string path, bool hidden)
+    {
+        if (hidden) manuallyShown.Remove(NormalizePath(path));
+        else if (HasRule(path)) manuallyShown.Add(NormalizePath(path));
+    }
+    internal void ResetManualVisibility() => manuallyShown.Clear();
     internal void Save()
     {
         File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(Saved, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(file + ".tmp", file, true);
     }
-    internal void AddRule(string path) { if (!HasRule(path)) Saved.HiddenPaths.Add(path); Save(); }
-    internal void RemoveRule(string path) { Saved.HiddenPaths.RemoveAll(x => string.Equals(x, path, StringComparison.OrdinalIgnoreCase)); Save(); }
+    internal void AddRule(string path)
+    {
+        path = NormalizePath(path);
+        if (HasRule(path)) return;
+        Saved.HiddenPaths.Add(path);
+        try { Save(); } catch { Saved.HiddenPaths.Remove(path); throw; }
+        manuallyShown.Remove(path);
+    }
+    internal void RemoveRule(string path)
+    {
+        var previous = Saved.HiddenPaths.ToList();
+        if (Saved.HiddenPaths.RemoveAll(x => SamePath(x, path)) == 0) return;
+        try { Save(); } catch { Saved.HiddenPaths = previous; throw; }
+        manuallyShown.Remove(NormalizePath(path));
+    }
+    internal void ClearRules()
+    {
+        var previous = Saved.HiddenPaths.ToList(); Saved.HiddenPaths.Clear();
+        try { Save(); } catch { Saved.HiddenPaths = previous; throw; }
+        manuallyShown.Clear();
+    }
     internal void Hide(TrayEntry entry)
     {
         if (!Scanner.SameOwner(entry)) return;
         int before = Native.State(entry);
         if (before != 0) return;
-        if (!Saved.Recovery.Any(x => x.Key == entry.Key)) { Saved.Recovery.Add(entry); Save(); }
+        if (!Saved.Recovery.Any(x => x.Key == entry.Key))
+        {
+            Saved.Recovery.Add(entry);
+            try { Save(); } catch { Saved.Recovery.Remove(entry); throw; }
+        }
         if (!Native.SetHidden(entry, true) || !WaitForState(entry, 1)) throw new IOException(L.F("无法隐藏 {0}（ID={1}, GUID={2}），系统未确认隐藏状态。", entry.Name, entry.Id, entry.Guid));
     }
     internal void Show(TrayEntry entry)
     {
-        if (Scanner.SameOwner(entry) && Native.State(entry) is 0 or 1)
+        if (Scanner.SameOwner(entry) && Native.State(entry) == 1)
         {
             if (!Native.SetHidden(entry, false) || !WaitForState(entry, 0)) throw new IOException(L.F("无法恢复 {0}。", entry.Name));
         }
-        Saved.Recovery.RemoveAll(x => x.Key == entry.Key); Save();
+        var removed = Saved.Recovery.Where(x => x.Key == entry.Key).ToList();
+        if (removed.Count == 0) return;
+        Saved.Recovery.RemoveAll(x => x.Key == entry.Key);
+        try { Save(); } catch { Saved.Recovery.AddRange(removed); throw; }
     }
     internal void Apply(List<TrayEntry> entries)
     {
         var staleEntries = Saved.Recovery.Where(x => !Scanner.SameOwner(x) || Native.State(x) < 0).ToList();
         foreach (var stale in staleEntries) Saved.Recovery.Remove(stale);
         if (staleEntries.Count > 0) Save();
-        foreach (var entry in entries.Where(x => HasRule(x.Path))) Hide(entry);
+        if (Saved.RulesPaused) return;
+        var paths = Saved.HiddenPaths.Select(NormalizePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var errors = new List<string>();
+        foreach (var entry in entries.Where(x => paths.Contains(NormalizePath(x.Path)) && !IsTemporarilyShown(x.Path)).DistinctBy(x => x.Key))
+            try { Hide(entry); } catch (Exception ex) { errors.Add(ex.Message); }
+        if (errors.Count > 0) throw new IOException(string.Join(Environment.NewLine, errors));
     }
     static bool WaitForState(TrayEntry entry, int state)
     {

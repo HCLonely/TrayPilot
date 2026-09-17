@@ -45,7 +45,8 @@ internal sealed partial class MainForm : Form
         autoRefresh.Margin = new(18, 10, 0, 0); autoRefresh.ForeColor = UiTheme.Muted;
         searchRow.Controls.Add(autoRefresh, 2, 0); layout.Controls.Add(searchRow, 0, 2);
         AddButton("隐藏选中", () => ChangeSelected(true)); AddButton("恢复选中", () => ChangeSelected(false));
-        AddButton("全部恢复", () => RunAction(() => { controller.Saved.HiddenPaths.Clear(); controller.Save(); controller.RestoreManaged(); }));
+        var hideRules = UiTheme.Button("隐藏规则命中"); hideRules.Click += async (_, _) => await ApplyVisibilityPresetAsync(true); actions.Controls.Add(hideRules);
+        AddButton("全部恢复", () => RunAction(() => { controller.RestoreManaged(); controller.ClearRules(); }));
         var commandRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         commandRow.ColumnStyles.Add(new(SizeType.Percent, 100)); commandRow.ColumnStyles.Add(new(SizeType.AutoSize));
         actions.Margin = Padding.Empty; commandRow.Controls.Add(actions, 0, 0);
@@ -58,7 +59,7 @@ internal sealed partial class MainForm : Form
         layoutMode.CheckedChanged += (_, _) => ChangeLayout();
         autoRefresh.CheckedChanged += (_, _) => { UpdateTimer(); UpdateStatus(); };
         list.BorderStyle = BorderStyle.None; list.BackColor = UiTheme.Surface; list.ForeColor = UiTheme.Ink;
-        list.Columns.Add("软件名称", 215); list.Columns.Add("图标状态", 125); list.Columns.Add("自动隐藏", 110);
+        list.Columns.Add("软件名称", 215); list.Columns.Add("图标状态", 125); list.Columns.Add("命中规则", 140);
         list.Columns.Add("进程", 155); list.Columns.Add("路径", 430);
         list.SizeChanged += (_, _) =>
         {
@@ -128,20 +129,25 @@ internal sealed partial class MainForm : Form
             var scanned = await Task.Run(Scanner.Scan);
             if (closing || IsDisposed) return;
             entries = scanned.Where(x => x.Pid != Environment.ProcessId).ToList();
-            if (!controller.Saved.RulesPaused) controller.Apply(entries);
-            entries = entries.Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
-            RenderList();
+            try { controller.Apply(entries); }
+            finally { UpdateEntryStates(); }
             UpdateStatus();
         }
         catch (Exception ex) { status.Text = L.T("检查失败：") + ex.Message; }
         finally { CompleteOperation(); }
+    }
+    void UpdateEntryStates()
+    {
+        if (closing || IsDisposed) return;
+        entries = entries.Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
+        RenderList();
     }
     void RenderList()
     {
         // Leave unchanged rows intact so periodic scanning does not dismiss tooltips or reset scrolling.
         var content = System.Text.Json.JsonSerializer.Serialize(new { Language = L.Current, Search = search.Text, Rows = entries.Select(x => new
         {
-            x.Key, x.Name, x.Path, x.Tooltip, x.State, Rule = controller.HasRule(x.Path),
+            x.Key, x.Name, x.Path, x.Tooltip, x.State, Rule = controller.HasRule(x.Path), Manual = controller.IsTemporarilyShown(x.Path),
             Icon = x.IconSnapshot == null ? "" : Convert.ToBase64String(x.IconSnapshot)
         }) });
         if (content == renderedContent) return;
@@ -151,7 +157,7 @@ internal sealed partial class MainForm : Form
         var largeImages = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(40, 40) };
         var oldImages = list.SmallImageList;
         var oldLargeImages = list.LargeImageList;
-        list.BeginUpdate(); list.Items.Clear();
+        list.BeginUpdate(); ((TrayListView)list).ClearHover(); list.Items.Clear();
         list.SmallImageList = images;
         list.LargeImageList = largeImages;
         try
@@ -163,10 +169,10 @@ internal sealed partial class MainForm : Form
             images.Images.Add(icon);
             using var largeIcon = TrayImages.Create(entry, largeImages.ImageSize.Width);
             largeImages.Images.Add(largeIcon);
-            var item = new ListViewItem(entry.Name) { Tag = entry, ImageIndex = images.Images.Count - 1,
+            var item = new TrayListItem(entry.Name, controller.HasRule(entry.Path)) { Tag = entry, ImageIndex = images.Images.Count - 1,
                 ToolTipText = Details(entry), Selected = selected.Contains(entry.Key) };
             item.SubItems.Add(L.T(entry.State == 1 ? "完全隐藏" : "正常"));
-            item.SubItems.Add(L.T(controller.HasRule(entry.Path) ? "是" : "否"));
+            item.SubItems.Add(controller.HasRule(entry.Path) ? L.T("✓ 命中") : "—");
             item.SubItems.Add(System.IO.Path.GetFileName(entry.Path)); item.SubItems.Add(entry.Path);
             item.BackColor = list.View == View.Details && list.Items.Count % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
             if (entry.State == 1) item.ForeColor = Color.FromArgb(140, 145, 155);
@@ -181,7 +187,8 @@ internal sealed partial class MainForm : Form
     string Details(TrayEntry entry) => L.F("{0}\n状态：{1}\n自动隐藏：{2}\n托盘提示（Windows 缓存）：{3}\n进程：{4} · PID {5}\n路径：{6}\n图标标识：{7}\n左键双击切换显示 / 隐藏；同一软件的所有托盘图标一起切换。",
         entry.Name, L.T(entry.State == 1 ? "已隐藏" : "显示"), L.T(controller.HasRule(entry.Path) ? "是" : "否"),
         string.IsNullOrWhiteSpace(entry.Tooltip) ? L.T("无") : entry.Tooltip, System.IO.Path.GetFileName(entry.Path), entry.Pid,
-        entry.Path, entry.Guid == Guid.Empty ? entry.Id.ToString() : entry.Guid.ToString());
+        entry.Path, entry.Guid == Guid.Empty ? entry.Id.ToString() : entry.Guid.ToString())
+        + (controller.IsTemporarilyShown(entry.Path) ? "\n" + L.T("暂时显示，执行“隐藏规则命中”后重新隐藏。") : "");
 
     void ToggleEntry(TrayEntry entry)
     {
@@ -201,6 +208,11 @@ internal sealed partial class MainForm : Form
         itemMenu.Items.Add(L.T("属性"), null, (_, _) => { itemMenu.Close(); ShowProperties(entry); });
         var toggle = itemMenu.Items.Add(L.T(state == 1 ? "显示图标" : "隐藏图标"), null, (_, _) => { itemMenu.Close(); ToggleEntry(entry); });
         toggle.Enabled = !busy && state is 0 or 1;
+        var rule = itemMenu.Items.Add(L.T(controller.HasRule(entry.Path) ? "已在命中规则" : "添加到命中规则"), null, (_, _) =>
+        {
+            itemMenu.Close(); RunAction(() => controller.AddRule(entry.Path));
+        });
+        rule.Enabled = !busy && !controller.HasRule(entry.Path) && state is 0 or 1;
         var end = itemMenu.Items.Add(L.T("结束任务"), null, async (_, _) => { itemMenu.Close(); await EndTaskAsync(entry); });
         end.Enabled = !busy && state is 0 or 1 && entry.Pid != Environment.ProcessId;
         UiTheme.Apply(itemMenu); itemMenu.Show(list, location);
@@ -233,10 +245,10 @@ internal sealed partial class MainForm : Form
 
     void ChangePaths(IEnumerable<string> paths, bool hide)
     {
-        foreach (var path in paths)
+        foreach (var path in paths.Select(Controller.NormalizePath).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (hide) controller.AddRule(path); else controller.RemoveRule(path);
-            foreach (var entry in entries.Where(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase)))
+            controller.SetManualVisibility(path, hide);
+            foreach (var entry in entries.Where(x => Controller.SamePath(x.Path, path)))
                 if (hide) controller.Hide(entry); else controller.Show(entry);
         }
     }
@@ -275,7 +287,7 @@ internal sealed partial class MainForm : Form
         dialog.Disposed += (_, _) => images.Dispose();
         foreach (var path in controller.Saved.HiddenPaths)
         {
-            var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase))
+            var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(x => Controller.SamePath(x.Path, path))
                 ?? new TrayEntry { Path = path, Name = System.IO.Path.GetFileNameWithoutExtension(path) };
             using var icon = TrayImages.Create(entry with { State = 0 }, 32); images.Images.Add(icon);
             var row = new ListViewItem(entry.Name) { Tag = path, ImageIndex = images.Images.Count - 1, ToolTipText = path,
@@ -296,7 +308,7 @@ internal sealed partial class MainForm : Form
                 {
                     var path = (string)row.Tag!;
                     // Keep the rule available for retry if restoring an icon fails.
-                    foreach (var entry in controller.Saved.Recovery.Where(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase)).ToList()) controller.Show(entry);
+                    foreach (var entry in controller.Saved.Recovery.Where(x => Controller.SamePath(x.Path, path)).ToList()) controller.Show(entry);
                     controller.RemoveRule(path); rules.Items.Remove(row);
                 }
             }

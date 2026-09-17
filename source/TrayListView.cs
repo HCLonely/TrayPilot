@@ -4,6 +4,7 @@ internal sealed class TrayListView : ListView
 {
     ListViewItem? hovered;
     internal ListViewItem? HoveredItem => hovered;
+    internal void ClearHover() { hovered = null; Invalidate(); }
     internal TrayListView() { DoubleBuffered = true; OwnerDraw = true; }
     internal ListViewItem? ItemAt(Point point) => !ClientRectangle.Contains(point) ? null : View == View.LargeIcon
         ? Items.Cast<ListViewItem>().FirstOrDefault(x => Cell(x).Contains(point))
@@ -22,16 +23,14 @@ internal sealed class TrayListView : ListView
         TextRenderer.DrawText(e.Graphics, e.Header!.Text, Font, Rectangle.Inflate(e.Bounds, -10, 0), UiTheme.Muted,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
-    Color Background(ListViewItem item) => item == hovered || item.Selected ? UiTheme.Highlight : View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
-    Color Foreground(ListViewItem item) => item == hovered || item.Selected ? Color.White : item.Tag is TrayEntry entry && entry.State == 1 ? UiTheme.Muted : UiTheme.Ink;
+    Color Background(ListViewItem item) => item == hovered ? UiTheme.Highlight : item.Selected ? UiTheme.Header : View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
+    Color Foreground(ListViewItem item) => item == hovered ? Color.White : item.Tag is TrayEntry entry && entry.State == 1 ? UiTheme.Muted : UiTheme.Ink;
     protected override void OnDrawItem(DrawListViewItemEventArgs e)
     {
         if (e.Item == null) return;
-        var bounds = e.Bounds;
-        if (View == View.Details)
-        {
-            using var row = new SolidBrush(Background(e.Item)); e.Graphics.FillRectangle(row, bounds); return;
-        }
+        // Native list-view can repaint just one subitem. Painting the entire row here
+        // erases text in columns that do not receive a DrawSubItem notification.
+        // Each subitem paints its own complete background and text instead.
     }
     Rectangle Cell(ListViewItem item)
     {
@@ -45,7 +44,7 @@ internal sealed class TrayListView : ListView
         {
             var bounds = Cell(item);
             if (!bounds.IntersectsWith(ClientRectangle)) continue;
-            using var fill = new SolidBrush(Background(item)); using var border = new Pen(item == hovered || item.Selected ? UiTheme.Highlight : UiTheme.Border);
+            using var fill = new SolidBrush(Background(item)); using var border = new Pen(item == hovered ? UiTheme.Highlight : item.Selected ? UiTheme.Header : UiTheme.Border);
             graphics.FillRectangle(fill, bounds); graphics.DrawRectangle(border, bounds);
             if (LargeImageList != null && item.ImageIndex >= 0 && item.ImageIndex < LargeImageList.Images.Count)
             {
@@ -55,6 +54,12 @@ internal sealed class TrayListView : ListView
                 LargeImageList.Draw(graphics, left, bounds.Top + 6, item.ImageIndex);
                 var text = new Rectangle(bounds.Left + 3, bounds.Top + size.Height + 10, bounds.Width - 6, Math.Max(1, bounds.Height - size.Height - 12));
                 TextRenderer.DrawText(graphics, item.Text, Font, text, Foreground(item), TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
+            if (item is TrayListItem { MatchesRule: true })
+            {
+                var badge = new Rectangle(bounds.Right - 19, bounds.Top + 3, 16, 16);
+                using var marker = new SolidBrush(UiTheme.Highlight); graphics.FillEllipse(marker, badge);
+                TextRenderer.DrawText(graphics, "✓", Font, badge, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             }
             if (item.Focused && Focused) ControlPaint.DrawFocusRectangle(graphics, Rectangle.Inflate(bounds, -2, -2), Foreground(item), Background(item));
         }
@@ -92,4 +97,9 @@ internal sealed class TrayListView : ListView
         TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Font, text, Foreground(e.Item), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         if (e.Item.Focused && Focused && e.ColumnIndex == 0) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(e.Bounds, -1, -1), Foreground(e.Item), Background(e.Item));
     }
+}
+
+internal sealed class TrayListItem(string text, bool matchesRule) : ListViewItem(text)
+{
+    internal bool MatchesRule { get; } = matchesRule;
 }

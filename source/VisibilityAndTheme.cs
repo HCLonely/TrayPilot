@@ -27,10 +27,13 @@ internal sealed partial class MainForm
             if (!hideMatches) controller.Saved.ShowTrayIcon = true;
             try { controller.Save(); } catch { controller.Saved.RulesPaused = previous; controller.Saved.ShowTrayIcon = previousTray; throw; }
             if (!hideMatches && trayIcon != null) trayIcon.Visible = true;
-            if (hideMatches) controller.Apply(entries);
-            else foreach (var entry in entries.Where(x => x.State == 1)) controller.Show(entry);
-            entries = entries.Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
-            RenderList(); UpdateStatus();
+            try
+            {
+                if (hideMatches) { controller.ResetManualVisibility(); controller.Apply(entries); }
+                else foreach (var entry in entries.Where(x => x.State == 1)) controller.Show(entry);
+            }
+            finally { UpdateEntryStates(); }
+            UpdateStatus();
         }
         catch (Exception ex) { status.Text = L.T("操作未完成") + ": " + ex.Message; }
         finally { CompleteOperation(); }

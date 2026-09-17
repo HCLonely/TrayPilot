@@ -120,6 +120,12 @@
     "显示所有快捷键": "Show all icons hotkey",
     "隐藏规则命中快捷键": "Hide matching icons hotkey",
     "自动隐藏已暂停": "Automatic hiding paused",
-    "显示所有会保留规则并暂停自动隐藏；隐藏规则命中会恢复规则。按 Ctrl 或 Alt 加其他键设置快捷键。": "Show all keeps rules and pauses automatic hiding. Hide matching icons resumes rules. Press Ctrl or Alt with another key to set a shortcut."
+    "显示所有会保留规则并暂停自动隐藏；隐藏规则命中会恢复规则。按 Ctrl 或 Alt 加其他键设置快捷键。": "Show all keeps rules and pauses automatic hiding. Hide matching icons resumes rules. Press Ctrl or Alt with another key to set a shortcut.",
+    "命中规则": "Matching rules",
+    "隐藏规则命中": "Hide matching icons",
+    "添加到命中规则": "Add to matching rules",
+    "已在命中规则": "Already in matching rules",
+    "✓ 命中": "✓ Matched",
+    "暂时显示，执行“隐藏规则命中”后重新隐藏。": "Temporarily shown. Hide matching icons resumes hiding this application."
   }
 }
