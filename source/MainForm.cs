@@ -60,7 +60,7 @@ internal sealed partial class MainForm : Form
         FormClosing += (_, e) =>
         {
             if (closing) return;
-            if (!exitRequested && e.CloseReason == CloseReason.UserClosing && controller.Saved.CloseToTray && trayIcon?.Visible == true)
+            if (!exitRequested && e.CloseReason == CloseReason.UserClosing && controller.Saved.CloseToTray && trayIcon != null)
             { e.Cancel = true; Hide(); return; }
             timer.Stop();
             try { controller.RestoreManaged(); closing = true; }
@@ -246,7 +246,7 @@ internal sealed partial class MainForm : Form
         if (disposing)
         {
             timer.Dispose();
-            hotkey?.Dispose();
+            hotkey?.Dispose(); mainHotkey?.Dispose();
             if (trayIcon != null) { trayIcon.Visible = false; trayIcon.Dispose(); }
             ClearTrayMenu(); trayMenu.Dispose();
             itemMenu.Dispose();

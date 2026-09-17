@@ -151,7 +151,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.2 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.3 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -334,10 +334,12 @@ internal static class Diagnostics
                 try
                 {
                     var controls = Descendants(dialog).ToList();
-                    controls.OfType<ComboBox>().Single().SelectedValue = "en-US";
+                    var combo = controls.OfType<ComboBox>().Single();
+                    check(((MainForm.LanguageChoice)combo.SelectedItem!).Code == controller.Saved.Language, "Settings select the actual saved language on opening.");
+                    combo.SelectedItem = combo.Items.Cast<MainForm.LanguageChoice>().Single(x => x.Code == "en-US");
                     controls.OfType<CheckBox>().Single(x => x.Text == L.T("关闭窗口后保留在托盘运行")).Checked = false;
-                    controls.OfType<CheckBox>().Single(x => x.Text == L.T("启用全局快捷键")).Checked = false;
-                    typeof(Control).GetMethod("OnKeyDown", flags)!.Invoke(controls.OfType<TextBox>().Single(),
+                    controls.OfType<CheckBox>().Single(x => x.Name == "menuHotkeyEnabled").Checked = false;
+                    typeof(Control).GetMethod("OnKeyDown", flags)!.Invoke(controls.OfType<TextBox>().Single(x => x.Name == "menuHotkey"),
                         new object[] { new KeyEventArgs(Keys.Control | Keys.Alt | Keys.K) });
                     controls.OfType<Button>().Single(x => x.Text == L.T("保存")).PerformClick();
                     saved = dialog.DialogResult == DialogResult.OK;
@@ -351,6 +353,10 @@ internal static class Diagnostics
             check(saved && controller.Saved.Language == "en-US" && !controller.Saved.CloseToTray
                 && controller.Saved.Hotkey == (int)(Keys.Control | Keys.Alt | Keys.K),
                 "Settings dialog saves language, close behavior and a captured key combination.");
+            settingsTimer.Start();
+            typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
+            if (settingsError != null) throw settingsError;
+            check(saved && controller.Saved.Language == "en-US", "Reopening settings retains the selected English language.");
             controller.Saved.CloseToTray = true;
         }
         L.Set("en-US"); typeof(MainForm).GetMethod("ApplyLanguage", flags)!.Invoke(form, null);
@@ -368,7 +374,17 @@ internal static class Diagnostics
         var tray = (NotifyIcon)typeof(MainForm).GetField("trayIcon", flags)!.GetValue(form)!;
         var menu = (ContextMenuStrip)typeof(MainForm).GetField("trayMenu", flags)!.GetValue(form)!;
         void BuildMenu() => typeof(MainForm).GetMethod("BuildTrayMenu", flags)!.Invoke(form, null);
-        ToolStripMenuItem AppRow() => menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Tag as string == own[0].Path);
+        ToolStripMenuItem AppRow()
+        {
+            for (int page = 0; page < 100; page++)
+            {
+                typeof(MainForm).GetField("trayPage", flags)!.SetValue(form, page);
+                BuildMenu();
+                var row = menu.Items.OfType<ToolStripMenuItem>().FirstOrDefault(x => x.Tag as string == own[0].Path);
+                if (row != null) return row;
+            }
+            throw new Exception("Test owner missing from tray pages.");
+        }
         BuildMenu();
         check(tray.Visible && menu.Items[0].Text == "打开主界面" && menu.Items[1].Text == "关于" && menu.Items[2].Text == "退出",
             "Manager tray icon offers Open, About and Exit.");
@@ -382,6 +398,55 @@ internal static class Diagnostics
             check(AppRow().Checked == !expectedHidden && own.All(x => Native.State(x) == (expectedHidden ? 1 : 0)),
                 "Single-click quick control toggles real state and updates its check mark.");
         }
+        var allRows = new HashSet<string>();
+        int previousPage = -1;
+        for (int page = 0; page < 100; page++)
+        {
+            typeof(MainForm).GetField("trayPage", flags)!.SetValue(form, page); BuildMenu();
+            int actualPage = (int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)!;
+            if (actualPage == previousPage) break;
+            previousPage = actualPage;
+            var paths = menu.Items.OfType<ToolStripMenuItem>().Where(x => x.Tag is string).Select(x => (string)x.Tag!).ToList();
+            check(paths.Count <= MainForm.TrayPageSize && paths.All(allRows.Add), "Quick-control pages contain at most ten applications without duplicates.");
+        }
+        if (previousPage > 0)
+        {
+            typeof(MainForm).GetField("trayPage", flags)!.SetValue(form, 0); BuildMenu();
+            menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("下一页")).PerformClick();
+            Application.DoEvents();
+            check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 1 && menu.Visible, "Next-page click reopens quick controls on the requested page.");
+            menu.Close();
+        }
+        check(allRows.Contains(own[0].Path), "Pagination keeps the test application reachable.");
+        foreach (string eventName in new[] { "OnMouseClick", "OnMouseDoubleClick" })
+        {
+            form.Hide();
+            typeof(NotifyIcon).GetMethod(eventName, flags)!.Invoke(tray, new object[] { new MouseEventArgs(MouseButtons.Left, eventName == "OnMouseClick" ? 1 : 2, 0, 0, 0) });
+            check(form.Visible, "Left tray click/double-click opens the main window.");
+        }
+        BuildMenu();
+        menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("TrayPilot（本程序）")).PerformClick();
+        var selfDeadline = DateTime.UtcNow.AddSeconds(60);
+        while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < selfDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        check(!tray.Visible && !controller.Saved.ShowTrayIcon, "The manager tray icon can be hidden and the preference is saved.");
+        form.Close();
+        check(!form.Visible && !form.IsDisposed, "Close-to-tray continues running when the manager tray icon is hidden.");
+        form.ActivateMainWindow();
+        check(form.Visible, "The activation entry point reopens a manager with no tray icon.");
+        BuildMenu();
+        menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("TrayPilot（本程序）")).PerformClick();
+        selfDeadline = DateTime.UtcNow.AddSeconds(60);
+        while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < selfDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        check(tray.Visible && controller.Saved.ShowTrayIcon, "The manager tray icon can be shown again.");
+        var mainHotkey = (GlobalHotkey)typeof(MainForm).GetField("mainHotkey", flags)!.GetValue(form)!;
+        Keys mainChosen = Keys.None;
+        foreach (var key in new[] { Keys.F1, Keys.F2, Keys.F3, Keys.F4, Keys.F5 })
+            if (mainHotkey.TrySet(true, Keys.Control | Keys.Alt | Keys.Shift | key)) { mainChosen = Keys.Control | Keys.Alt | Keys.Shift | key; break; }
+        check(mainChosen != Keys.None, "A separate main-window hotkey can be registered.");
+        form.Hide();
+        int mainId = mainHotkey.Matches((nint)0x4A11) ? 0x4A11 : 0x4A12;
+        Native.SendMessageW(form.Handle, 0x0312, mainId, 0); Application.DoEvents();
+        check(form.Visible && !menu.Visible, "The main-window hotkey opens the window without opening quick controls.");
         var hotkey = (GlobalHotkey)typeof(MainForm).GetField("hotkey", flags)!.GetValue(form)!;
         Keys chosen = Keys.None;
         foreach (var key in new[] { Keys.F6, Keys.F7, Keys.F8, Keys.F9, Keys.F10, Keys.F11 })
@@ -414,13 +479,14 @@ internal static class Diagnostics
         check(directExit.IsDisposed && own.All(x => Native.State(x) == 0), "With close-to-tray disabled, closing exits and restores icons.");
         controller.Saved.CloseToTray = true; controller.Saved.Language = "en-US";
         controller.Saved.HotkeyEnabled = true; controller.Saved.Hotkey = (int)chosen;
+        controller.Saved.MainHotkeyEnabled = true; controller.Saved.MainHotkey = (int)mainChosen; controller.Saved.ShowTrayIcon = false;
         controller.Save();
         var settingsFile = (string)typeof(Controller).GetField("file", flags)!.GetValue(controller)!;
         var loaded = new Controller(Path.GetDirectoryName(settingsFile)!).Saved;
-        check(loaded.CloseToTray && loaded.Language == "en-US" && loaded.HotkeyEnabled && loaded.Hotkey == (int)chosen,
+        check(loaded.CloseToTray && loaded.Language == "en-US" && loaded.HotkeyEnabled && loaded.Hotkey == (int)chosen && loaded.MainHotkeyEnabled && loaded.MainHotkey == (int)mainChosen && !loaded.ShowTrayIcon,
             "Language, close-to-tray and hotkey settings survive a controller reload.");
         L.Set("missing-language"); check(L.Current == "zh-CN" && L.T("关于") == "关于", "Unknown language safely falls back to Simplified Chinese.");
-        controller.Saved.Language = "zh-CN"; controller.Saved.HotkeyEnabled = false; controller.RemoveRule(own[0].Path);
+        controller.Saved.Language = "zh-CN"; controller.Saved.HotkeyEnabled = false; controller.Saved.MainHotkeyEnabled = false; controller.Saved.ShowTrayIcon = true; controller.RemoveRule(own[0].Path);
     }
 }
 

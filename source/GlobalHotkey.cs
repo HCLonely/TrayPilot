@@ -1,6 +1,6 @@
 namespace TrayPilot;
 
-internal sealed class GlobalHotkey(nint window) : IDisposable
+internal sealed class GlobalHotkey(nint window, int baseId = 0x4A01) : IDisposable
 {
     int registeredId;
     Keys registeredKeys;
@@ -17,7 +17,7 @@ internal sealed class GlobalHotkey(nint window) : IDisposable
         if (!Valid(keys)) return false;
         if (registeredId != 0 && registeredKeys == keys) return true;
         uint modifiers = 0x4000u | ((keys & Keys.Alt) != 0 ? 1u : 0u) | ((keys & Keys.Control) != 0 ? 2u : 0u) | ((keys & Keys.Shift) != 0 ? 4u : 0u);
-        int nextId = registeredId == 0x4A01 ? 0x4A02 : 0x4A01;
+        int nextId = registeredId == baseId ? baseId + 1 : baseId;
         if (!Native.RegisterHotKey(window, nextId, modifiers, (uint)(keys & Keys.KeyCode))) return false;
         if (registeredId != 0) Native.UnregisterHotKey(window, registeredId);
         registeredId = nextId; registeredKeys = keys;

@@ -1,4 +1,4 @@
-# TrayPilot 0.2
+# TrayPilot 0.3
 
 Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installation is required. Keep the adjacent `app/languages` folder when moving or distributing the application.
 
@@ -13,19 +13,19 @@ Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installa
 
 By default, closing the window keeps TrayPilot running in the system tray and continues enforcing hide rules. Disable this behavior in Settings if closing should exit instead.
 
-Click TrayPilot's tray icon to open quick controls; double-click to open the main window. The tray menu includes Open main window, About and Exit, plus all detected applications, independent of the main search filter. A check mark means all icons for that application's executable path are shown. Click once to toggle; if some icons are hidden, the command shows all of them. Windows may still place shown icons in its overflow area.
+Left-click or double-click TrayPilot's tray icon to open the main window. Right-click for quick controls. The tray menu includes Open main window, About and Exit, plus all detected applications, independent of the main search filter. A check mark means all icons for that application's executable path are shown. Click once to toggle; if some icons are hidden, the command shows all of them. Windows may still place shown icons in its overflow area.
 
-Choose Exit to restore managed icons and quit. TrayPilot excludes its own process from icon management so its tray entry remains accessible. Saved hide rules are applied again the next time TrayPilot runs.
+Choose Exit to restore managed icons and quit. Show or hide TrayPilot itself using the dedicated tray-menu entry or Settings. Run the executable again to reopen the existing window even when its icon is hidden. Quick controls paginate applications in groups of ten. Saved hide rules are applied again the next time TrayPilot runs.
 
 About displays the application version, description, operating system, executable path, settings folder and language folder.
 
 ## Global hotkey
 
-In Settings, enable the hotkey, focus its input field, press Ctrl or Alt plus another key, then Save. The hotkey opens quick controls even when the main window is hidden. No key is reserved by default; Ctrl+Alt+T is only the initial suggested combination. Conflicts are reported, and a failed change retains the existing registration. Disabling the hotkey or exiting releases it.
+In Settings, enable the hotkey, focus its input field, press Ctrl or Alt plus another key, then Save. Two independent hotkeys open quick controls and the main window, including when the window and tray icon are hidden. No key is reserved by default; Ctrl+Alt+T (quick controls) and Ctrl+Alt+M (main window) are the initial suggested combinations. Conflicts are reported, and a failed change retains the existing registration. Disabling the hotkey or exiting releases it.
 
 ## Languages and settings
 
-Settings offers Simplified Chinese and English, with immediate switching. Simplified Chinese is the default. Language, close-to-tray behavior and the hotkey are saved in `%LOCALAPPDATA%\TrayPilot\settings.json`.
+Settings offers Simplified Chinese and English, with immediate switching. Simplified Chinese is the default. Language, close-to-tray behavior, own-icon visibility and both hotkeys are saved in `%LOCALAPPDATA%\TrayPilot\settings.json`.
 
 UTF-8 language packs live in `app/languages/zh-CN.json` and `app/languages/en-US.json`. To add a language, copy a complete pack, change its filename and `Name`, and translate the values in `Strings`. Keep the keys and format placeholders such as `{0}` unchanged. Reopen Settings to discover added packs. Missing translations fall back to Chinese; missing or malformed packs do not prevent normal operation.
 

@@ -7,6 +7,9 @@ internal sealed class SavedState
     public List<TrayEntry> Recovery { get; set; } = new();
     public string Language { get; set; } = "zh-CN";
     public bool CloseToTray { get; set; } = true;
+    public bool ShowTrayIcon { get; set; } = true;
+    public bool MainHotkeyEnabled { get; set; }
+    public int MainHotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.M);
     public bool HotkeyEnabled { get; set; }
     public int Hotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.T);
 }

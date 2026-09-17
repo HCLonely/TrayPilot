@@ -10,10 +10,18 @@ internal static class Program
         {
             var controller = new Controller(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"));
             L.Set(controller.Saved.Language);
+            using var activation = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\TrayPilot-Activate-v1");
             using var mutex = new Mutex(true, @"Local\TrayPilot-Manager-v1", out var created);
-            if (!created) { MessageBox.Show(L.T("TrayPilot 已经在运行，请从托盘打开现有窗口。"), "TrayPilot"); return 0; }
+            if (!created) { activation.Set(); return 0; }
             controller.RestoreManaged();
-            Application.Run(new MainForm(controller));
+            using var form = new MainForm(controller);
+            _ = form.Handle;
+            var listener = ThreadPool.RegisterWaitForSingleObject(activation, (_, _) =>
+            {
+                try { form.BeginInvoke(() => form.ActivateMainWindow()); }
+                catch (InvalidOperationException) { }
+            }, null, Timeout.Infinite, false);
+            try { Application.Run(form); } finally { listener.Unregister(null); }
             return 0;
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, L.T("TrayPilot 启动失败"), MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
