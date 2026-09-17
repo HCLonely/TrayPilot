@@ -53,13 +53,13 @@ internal sealed partial class MainForm
     void ApplyLanguage()
     {
         foreach (var caption in captions) caption.Key.Text = L.T(caption.Value);
-        search.PlaceholderText = L.T("搜索软件名称、进程或路径");
+        search.PlaceholderText = L.T("searchPlaceholder");
         for (int i = 0; i < columnCaptions.Count; i++) list.Columns[i].Text = L.T(columnCaptions[i]);
         while (menuBar.Items.Count > 0) { var item = menuBar.Items[0]; menuBar.Items.RemoveAt(0); item.Dispose(); }
-        menuBar.Items.Add(L.T("隐藏规则"), null, (_, _) => EditRules());
-        menuBar.Items.Add(L.T("设置"), null, (_, _) => ShowSettings());
-        menuBar.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
-        menuBar.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
+        menuBar.Items.Add(L.T("hideRules"), null, (_, _) => EditRules());
+        menuBar.Items.Add(L.T("settings"), null, (_, _) => ShowSettings());
+        menuBar.Items.Add(L.T("about"), null, (_, _) => ShowAbout());
+        menuBar.Items.Add(L.T("exit"), null, (_, _) => RequestExit());
         RenderList(); UpdateStatus(); UiTheme.Apply(menuBar);
     }
 
@@ -75,9 +75,9 @@ internal sealed partial class MainForm
     void BuildTrayMenu()
     {
         ClearTrayMenu();
-        trayMenu.Items.Add(L.T("打开主界面"), null, (_, _) => OpenMainWindow());
+        trayMenu.Items.Add(L.T("openMainWindow"), null, (_, _) => OpenMainWindow());
         trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add(new ToolStripMenuItem(L.T("托盘图标（√ 表示显示，单击切换）")) { Enabled = false });
+        trayMenu.Items.Add(new ToolStripMenuItem(L.T("trayMenuIconsHelp")) { Enabled = false });
         var groups = entries.Where(x => x.Pid != Environment.ProcessId && Scanner.SameOwner(x))
             .GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
         groups = groups.Where(g => g.Any(x => Native.State(x) is 0 or 1)).ToList();
@@ -91,7 +91,7 @@ internal sealed partial class MainForm
             bool shown = active.All(x => x.State == 0);
             var row = new ToolStripMenuItem(entry.Name) { Checked = shown, CheckOnClick = false, Enabled = !busy,
                 Image = TrayImages.Create(entry with { State = shown ? 0 : 1 }, 20), Tag = entry.Path,
-                ToolTipText = entry.Path + "\n" + L.T(shown ? "单击隐藏此软件的所有托盘图标" : "单击显示此软件的所有托盘图标") };
+                ToolTipText = entry.Path + "\n" + L.T(shown ? "clickToHideIconsHint" : "clickToShowIconsHint") };
             row.Click += (_, _) =>
             {
                 trayMenu.Close();
@@ -99,7 +99,7 @@ internal sealed partial class MainForm
                 {
                     var current = entries.Where(x => string.Equals(x.Path, entry.Path, StringComparison.OrdinalIgnoreCase) && Scanner.SameOwner(x))
                         .Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
-                    if (current.Count == 0) throw new IOException(L.T("此图标已失效，请刷新后重试。"));
+                    if (current.Count == 0) throw new IOException(L.T("iconUnavailableMessage"));
                     ChangePaths(new[] { entry.Path }, current.All(x => x.State == 0));
                 });
             };
@@ -107,14 +107,14 @@ internal sealed partial class MainForm
         }
         if (pages > 1)
         {
-            var previous = new ToolStripMenuItem(L.T("上一页")) { Enabled = trayPage > 0 };
-            var next = new ToolStripMenuItem(L.T("下一页")) { Enabled = trayPage + 1 < pages };
+            var previous = new ToolStripMenuItem(L.T("previousPage")) { Enabled = trayPage > 0 };
+            var next = new ToolStripMenuItem(L.T("nextPage")) { Enabled = trayPage + 1 < pages };
             previous.Click += (_, _) => MoveTrayPage(-1); next.Click += (_, _) => MoveTrayPage(1);
             trayMenu.Items.Add(previous);
-            trayMenu.Items.Add(new ToolStripMenuItem(L.F("第 {0} / {1} 页", trayPage + 1, pages)) { Enabled = false });
+            trayMenu.Items.Add(new ToolStripMenuItem(L.F("paginationStatus", trayPage + 1, pages)) { Enabled = false });
             trayMenu.Items.Add(next);
         }
-        var self = new ToolStripMenuItem(L.T("TrayPilot（本程序）")) { Checked = controller.Saved.ShowTrayIcon, Image = AppIcon.Draw(20), Enabled = !busy };
+        var self = new ToolStripMenuItem(L.T("selfTrayMenuItem")) { Checked = controller.Saved.ShowTrayIcon, Image = AppIcon.Draw(20), Enabled = !busy };
         self.Click += (_, _) => RunAction(() =>
         {
             bool previous = controller.Saved.ShowTrayIcon;
@@ -123,22 +123,22 @@ internal sealed partial class MainForm
             if (trayIcon != null) trayIcon.Visible = controller.Saved.ShowTrayIcon;
         });
         trayMenu.Items.Add(new ToolStripSeparator()); trayMenu.Items.Add(self);
-        if (groups.Count == 0) trayMenu.Items.Add(new ToolStripMenuItem(L.T("暂无可管理的图标")) { Enabled = false });
+        if (groups.Count == 0) trayMenu.Items.Add(new ToolStripMenuItem(L.T("noIconsMessage")) { Enabled = false });
         trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add(L.T("刷新"), null, async (_, _) => { trayMenu.Close(); await RefreshAsync(); });
-        var autoStart = new ToolStripMenuItem(L.T("开机启动")) { Name = "startup", CheckOnClick = false };
+        trayMenu.Items.Add(L.T("refresh"), null, async (_, _) => { trayMenu.Close(); await RefreshAsync(); });
+        var autoStart = new ToolStripMenuItem(L.T("startWithWindows")) { Name = "startup", CheckOnClick = false };
         try { autoStart.Checked = startup.Enabled; }
         catch (Exception ex) { autoStart.Enabled = false; autoStart.ToolTipText = ex.Message; }
         autoStart.Click += (_, _) =>
         {
             try { startup.SetEnabled(!startup.Enabled); autoStart.Checked = startup.Enabled; }
-            catch (Exception ex) { MessageBox.Show(ex.Message, L.T("开机启动设置失败"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, L.T("startupSettingFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
         trayMenu.Items.Add(autoStart);
-        trayMenu.Items.Add(L.T("设置"), null, (_, _) => ShowSettings());
-        trayMenu.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
+        trayMenu.Items.Add(L.T("settings"), null, (_, _) => ShowSettings());
+        trayMenu.Items.Add(L.T("about"), null, (_, _) => ShowAbout());
         trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
+        trayMenu.Items.Add(L.T("exit"), null, (_, _) => RequestExit());
         UiTheme.Apply(trayMenu);
     }
 
@@ -188,14 +188,14 @@ internal sealed partial class MainForm
     {
         trayMenu.Close();
         var version = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
-        using var dialog = InfoDialog.Create(L.T("关于") + " TrayPilot", new Dictionary<string, string>
+        using var dialog = InfoDialog.Create(L.T("about") + " TrayPilot", new Dictionary<string, string>
         {
-            [L.T("程序名称")] = "TrayPilot", [L.T("版本")] = version,
-            [L.T("说明")] = L.T("Windows 托盘图标管理工具，支持隐藏规则、快捷管理和多语言。"),
-            [L.T("运行系统")] = Environment.OSVersion.VersionString,
-            [L.T("程序路径")] = Environment.ProcessPath ?? AppContext.BaseDirectory,
-            [L.T("设置目录")] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"),
-            [L.T("语言包目录")] = L.Folder
+            [L.T("applicationName")] = "TrayPilot", [L.T("version")] = version,
+            [L.T("description")] = L.T("applicationDescription"),
+            [L.T("operatingSystem")] = Environment.OSVersion.VersionString,
+            [L.T("applicationPath")] = Environment.ProcessPath ?? AppContext.BaseDirectory,
+            [L.T("settingsFolder")] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"),
+            [L.T("languagePackFolder")] = L.Folder
         }, Font, about: true);
         timer.Stop();
         try { if (Visible) dialog.ShowDialog(this); else dialog.ShowDialog(); } finally { UpdateTimer(); }
@@ -215,22 +215,22 @@ internal sealed partial class MainForm
     void ShowSettings()
     {
         trayMenu.Close();
-        using var dialog = new Form { Text = L.T("设置"), Size = new(800, 750), FormBorderStyle = FormBorderStyle.FixedDialog,
+        using var dialog = new Form { Text = L.T("settings"), Size = new(800, 750), FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
         var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 11 };
         foreach (int height in new[] { 42, 42, 38, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
         panel.ColumnStyles.Add(new(SizeType.Absolute, 300)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
-        if (packs.Count == 0) packs["zh-CN"] = new L.Pack { Name = "简体中文" };
+        if (packs.Count == 0) packs["zh-CN"] = new L.Pack { Name = "simplifiedChinese" };
         var languages = new ThemeComboBox { Name = "language", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         languages.Items.AddRange(packs.Select(x => new LanguageChoice(x.Key, x.Value.Name)).ToArray());
         languages.SelectedIndex = Math.Max(0, languages.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == L.Current));
         var themes = new ThemeComboBox { Name = "theme", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-        themes.Items.AddRange(new[] { new LanguageChoice("system", L.T("跟随系统")), new LanguageChoice("light", L.T("浅色")), new LanguageChoice("dark", L.T("深色")) });
+        themes.Items.AddRange(new[] { new LanguageChoice("system", L.T("followSystem")), new LanguageChoice("light", L.T("lightTheme")), new LanguageChoice("dark", L.T("darkTheme")) });
         themes.SelectedIndex = Math.Max(0, themes.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == controller.Saved.Theme));
-        var closeToTray = new CheckBox { Text = L.T("关闭窗口后保留在托盘运行"), Checked = controller.Saved.CloseToTray, AutoSize = true };
-        var showTrayIcon = new CheckBox { Text = L.T("显示本程序托盘图标"), Checked = controller.Saved.ShowTrayIcon, AutoSize = true };
-        var autoStart = new CheckBox { Name = "startup", Text = L.T("开机启动"), AutoSize = true };
+        var closeToTray = new CheckBox { Text = L.T("closeToTray"), Checked = controller.Saved.CloseToTray, AutoSize = true };
+        var showTrayIcon = new CheckBox { Text = L.T("showOwnTrayIcon"), Checked = controller.Saved.ShowTrayIcon, AutoSize = true };
+        var autoStart = new CheckBox { Name = "startup", Text = L.T("startWithWindows"), AutoSize = true };
         string? startupError = null;
         try { autoStart.Checked = startup.Enabled; }
         catch (Exception ex) { autoStart.Enabled = false; startupError = ex.Message; }
@@ -238,9 +238,9 @@ internal sealed partial class MainForm
         var enabled = new[] { controller.Saved.MainHotkeyEnabled, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.HideRulesHotkeyEnabled };
         var keys = new[] { (Keys)controller.Saved.MainHotkey, (Keys)controller.Saved.ShowAllHotkey, (Keys)controller.Saved.HideRulesHotkey };
         var names = new[] { "mainHotkey", "showAllHotkey", "hideRulesHotkey" };
-        var labels = new[] { "打开主界面快捷键", "显示所有快捷键", "隐藏规则命中快捷键" };
-        panel.Controls.Add(new Label { Text = L.T("语言"), AutoSize = true }, 0, 0); panel.Controls.Add(languages, 1, 0);
-        panel.Controls.Add(new Label { Text = L.T("外观"), AutoSize = true }, 0, 1); panel.Controls.Add(themes, 1, 1);
+        var labels = new[] { "openMainWindowHotkey", "showAllIconsHotkey", "hideMatchingIconsHotkey" };
+        panel.Controls.Add(new Label { Text = L.T("language"), AutoSize = true }, 0, 0); panel.Controls.Add(languages, 1, 0);
+        panel.Controls.Add(new Label { Text = L.T("appearance"), AutoSize = true }, 0, 1); panel.Controls.Add(themes, 1, 1);
         panel.Controls.Add(closeToTray, 0, 2); panel.SetColumnSpan(closeToTray, 2);
         panel.Controls.Add(showTrayIcon, 0, 3); panel.SetColumnSpan(showTrayIcon, 2);
         panel.Controls.Add(autoStart, 0, 4); panel.SetColumnSpan(autoStart, 2);
@@ -257,21 +257,21 @@ internal sealed partial class MainForm
             };
             panel.Controls.Add(toggle, 0, 5 + i); panel.Controls.Add(input, 1, 5 + i);
         }
-        var help = new Label { Text = L.T("显示所有会保留规则并暂停自动隐藏；隐藏规则命中会恢复规则。按 Ctrl 或 Alt 加其他键设置快捷键。"), AutoSize = true, MaximumSize = new(660, 0), ForeColor = UiTheme.Muted };
+        var help = new Label { Text = L.T("rulesAndHotkeysHelp"), AutoSize = true, MaximumSize = new(660, 0), ForeColor = UiTheme.Muted };
         var error = new Label { Text = startupError ?? "", AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(660, 0) };
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-        var save = UiTheme.Button(L.T("保存")); var cancel = UiTheme.Button(L.T("取消")); cancel.DialogResult = DialogResult.Cancel;
+        var save = UiTheme.Button(L.T("save")); var cancel = UiTheme.Button(L.T("cancel")); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save); buttons.Controls.Add(cancel);
         panel.Controls.Add(help, 0, 8); panel.SetColumnSpan(help, 2);
         panel.Controls.Add(error, 0, 9); panel.SetColumnSpan(error, 2);
         panel.Controls.Add(buttons, 0, 10); panel.SetColumnSpan(buttons, 2);
-        dialog.Controls.Add(panel); dialog.Controls.Add(UiTheme.Heading(L.T("设置"), L.T("语言、托盘行为与键盘快捷键"), Font));
+        dialog.Controls.Add(panel); dialog.Controls.Add(UiTheme.Heading(L.T("settings"), L.T("settingsPageDescription"), Font));
         dialog.CancelButton = cancel;
         save.Click += (_, _) =>
         {
             var active = keys.Where((_, index) => enabled[index]).ToList();
             if (active.Any(x => !GlobalHotkey.Valid(x)) || active.Distinct().Count() != active.Count)
-            { error.Text = L.T("快捷键无效或已被占用，请更换组合。"); return; }
+            { error.Text = L.T("invalidHotkeyMessage"); return; }
             var old = new { controller.Saved.MainHotkeyEnabled, controller.Saved.MainHotkey, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.ShowAllHotkey,
                 controller.Saved.HideRulesHotkeyEnabled, controller.Saved.HideRulesHotkey, controller.Saved.Theme, controller.Saved.Language, controller.Saved.CloseToTray, controller.Saved.ShowTrayIcon };
             void Restore()
@@ -287,7 +287,7 @@ internal sealed partial class MainForm
             controller.Saved.ShowAllHotkeyEnabled = enabled[1]; controller.Saved.ShowAllHotkey = (int)keys[1];
             controller.Saved.HideRulesHotkeyEnabled = enabled[2]; controller.Saved.HideRulesHotkey = (int)keys[2];
             RegisterShortcuts();
-            if (hotkeyWarning) { Restore(); error.Text = L.T("快捷键无效或已被占用，请更换组合。"); return; }
+            if (hotkeyWarning) { Restore(); error.Text = L.T("invalidHotkeyMessage"); return; }
             StartupRegistration.Snapshot? previousStartup = null;
             try
             {

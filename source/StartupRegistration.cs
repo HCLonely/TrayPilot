@@ -39,7 +39,7 @@ internal sealed class StartupRegistration
     internal void Restore(Snapshot state) { Write(runKey, state.Run); Write(approvalKey, state.Approval); }
     internal void SetEnabled(bool enabled)
     {
-        if (enabled && Command.Length > 260) throw new IOException(L.T("程序路径过长，无法设置开机启动。"));
+        if (enabled && Command.Length > 260) throw new IOException(L.T("startupPathTooLongMessage"));
         var previous = Capture();
         try
         {

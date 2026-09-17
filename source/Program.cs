@@ -25,6 +25,6 @@ internal static class Program
             try { Application.Run(form); } finally { listener.Unregister(null); }
             return 0;
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, L.T("TrayPilot 启动失败"), MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
+        catch (Exception ex) { MessageBox.Show(ex.Message, L.T("startupFailedTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
     }
 }

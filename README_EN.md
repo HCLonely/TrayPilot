@@ -92,13 +92,13 @@ Runtime language packs are in `app/languages/`; source packs are in `source/lang
 {
   "Name": "English",
   "Strings": {
-    "关于": "About",
-    "设置": "Settings"
+    "mainWindowTitle": "TrayPilot · Tray Icon Manager",
+    "settings": "Settings"
   }
 }
 ```
 
-Copy an existing complete pack and translate only the values in `Strings`, retaining keys and placeholders such as `{0}` and `{1}`. The filename without its extension identifies the language; `Name` is its label in Settings. Reopen Settings to discover added packs. Missing translations fall back to Chinese. Missing or malformed packs do not prevent normal icon management.
+Keys are short, stable semantic English identifiers in `camelCase` (for example, `mainWindowTitle` and `trayIconDetails`), without display punctuation, line breaks or format placeholders. Copy an existing complete pack and translate only the values in `Strings`, retaining keys and placeholders such as `{0}` and `{1}`. The filename without its extension identifies the language; `Name` is its label in Settings. Reopen Settings to discover added packs. Missing translations fall back to Chinese. Missing or malformed packs do not prevent normal icon management.
 
 ## Configuration and recovery
 

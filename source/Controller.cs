@@ -27,7 +27,7 @@ internal sealed class Controller
         Directory.CreateDirectory(folder);
         file = System.IO.Path.Combine(folder, "settings.json");
         // Never silently discard an unreadable recovery journal.
-        Saved = File.Exists(file) ? JsonSerializer.Deserialize<SavedState>(File.ReadAllText(file)) ?? throw new IOException(L.T("设置文件为空。")) : new();
+        Saved = File.Exists(file) ? JsonSerializer.Deserialize<SavedState>(File.ReadAllText(file)) ?? throw new IOException(L.T("emptySettingsFileMessage")) : new();
     }
     internal static string NormalizePath(string path)
     {
@@ -79,13 +79,13 @@ internal sealed class Controller
             Saved.Recovery.Add(entry);
             try { Save(); } catch { Saved.Recovery.Remove(entry); throw; }
         }
-        if (!Native.SetHidden(entry, true) || !WaitForState(entry, 1)) throw new IOException(L.F("无法隐藏 {0}（ID={1}, GUID={2}），系统未确认隐藏状态。", entry.Name, entry.Id, entry.Guid));
+        if (!Native.SetHidden(entry, true) || !WaitForState(entry, 1)) throw new IOException(L.F("iconHideFailedMessage", entry.Name, entry.Id, entry.Guid));
     }
     internal void Show(TrayEntry entry)
     {
         if (Scanner.SameOwner(entry) && Native.State(entry) == 1)
         {
-            if (!Native.SetHidden(entry, false) || !WaitForState(entry, 0)) throw new IOException(L.F("无法恢复 {0}。", entry.Name));
+            if (!Native.SetHidden(entry, false) || !WaitForState(entry, 0)) throw new IOException(L.F("iconRestoreFailedMessage", entry.Name));
         }
         var removed = Saved.Recovery.Where(x => x.Key == entry.Key).ToList();
         if (removed.Count == 0) return;

@@ -228,7 +228,7 @@ internal static class Diagnostics
                     if (rejectSave)
                     {
                         var panel = dialog.Controls.OfType<TableLayoutPanel>().Single();
-                        panel.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("保存")).PerformClick();
+                        panel.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("save")).PerformClick();
                         check(dialog.DialogResult != DialogResult.OK && !startup.Enabled,
                             "A settings-file save failure rolls back the startup registration.");
                     }
@@ -472,19 +472,19 @@ internal static class Diagnostics
         check(search.Handle == searchHandle && search.Focused == searchWasFocused && form.ActiveControl == search && search.Text == own[0].Path && search.SelectionStart == 2 && search.SelectionLength == 3
             && list.Items.Count == 2, "Refresh preserves search text, control, focus and caret, and applies the latest filter.");
         typeof(MainForm).GetMethod("ShowItemMenu", flags)!.Invoke(form, new object[] { own[0], new Point(30, 30) });
-        check(menu.Items[2].Text == L.T("添加到命中规则") && menu.Items[2].Enabled, "Context menu offers explicit rule addition.");
+        check(menu.Items[2].Text == L.T("addToMatchingRules") && menu.Items[2].Enabled, "Context menu offers explicit rule addition.");
         menu.Items[2].PerformClick();
         var ruleDeadline = DateTime.UtcNow.AddSeconds(60);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         check(controller.HasRule(own[0].Path) && own.All(x => Native.State(x) == 1), "Adding a matching rule immediately applies it when rules are active.");
         controller.AddRule(own[0].Path.ToUpperInvariant().Replace('\\', '/'));
         check(controller.Saved.HiddenPaths.Count(x => Controller.SamePath(x, own[0].Path)) == 1, "Equivalent case and slash variants do not create duplicate rules.");
-        check(list.Items.Cast<TrayListItem>().All(x => x.MatchesRule && x.SubItems[2].Text == L.T("✓ 命中")), "Matching items carry a persistent rule marker.");
+        check(list.Items.Cast<TrayListItem>().All(x => x.MatchesRule && x.SubItems[2].Text == L.T("ruleMatchIndicator")), "Matching items carry a persistent rule marker.");
         typeof(MainForm).GetMethod("ChangePaths", flags)!.Invoke(form, new object[] { new[] { own[0].Path }, false });
         controller.Apply(own);
         check(controller.HasRule(own[0].Path) && controller.IsTemporarilyShown(own[0].Path) && own.All(x => Native.State(x) == 0), "Manual restore retains the rule and automatic refresh respects the temporary override.");
         var commands = (FlowLayoutPanel)typeof(MainForm).GetField("actions", flags)!.GetValue(form)!;
-        commands.Controls.OfType<Button>().Single(x => x.Text == L.T("隐藏规则命中")).PerformClick();
+        commands.Controls.OfType<Button>().Single(x => x.Text == L.T("hideMatchingIcons")).PerformClick();
         ruleDeadline = DateTime.UtcNow.AddSeconds(60);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         check(!controller.IsTemporarilyShown(own[0].Path) && own.All(x => Native.State(x) == 1), "Hide matching button clears temporary overrides and reapplies saved rules.");
@@ -560,11 +560,11 @@ internal static class Diagnostics
                     var combo = controls.OfType<ComboBox>().Single(x => x.Name == "language");
                     check(((MainForm.LanguageChoice)combo.SelectedItem!).Code == controller.Saved.Language, "Settings select the actual saved language on opening.");
                     combo.SelectedItem = combo.Items.Cast<MainForm.LanguageChoice>().Single(x => x.Code == "en-US");
-                    controls.OfType<CheckBox>().Single(x => x.Text == L.T("关闭窗口后保留在托盘运行")).Checked = false;
+                    controls.OfType<CheckBox>().Single(x => x.Text == L.T("closeToTray")).Checked = false;
                     controls.OfType<CheckBox>().Single(x => x.Name == "showAllHotkeyEnabled").Checked = false;
                     typeof(Control).GetMethod("OnKeyDown", flags)!.Invoke(controls.OfType<TextBox>().Single(x => x.Name == "showAllHotkey"),
                         new object[] { new KeyEventArgs(Keys.Control | Keys.Alt | Keys.K) });
-                    controls.OfType<Button>().Single(x => x.Text == L.T("保存")).PerformClick();
+                    controls.OfType<Button>().Single(x => x.Text == L.T("save")).PerformClick();
                     saved = dialog.DialogResult == DialogResult.OK;
                     if (!saved) dialog.Close();
                 }
@@ -654,7 +654,7 @@ internal static class Diagnostics
         if (previousPage > 0)
         {
             typeof(MainForm).GetField("trayPage", flags)!.SetValue(form, 0); BuildMenu();
-            menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("下一页")).PerformClick();
+            menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("nextPage")).PerformClick();
             Application.DoEvents();
             check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 1 && menu.Visible, "Next-page click reopens quick controls on the requested page.");
             void Wheel(int delta)
@@ -682,7 +682,7 @@ internal static class Diagnostics
             check(form.Visible, "Left tray click/double-click opens the main window.");
         }
         BuildMenu();
-        menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("TrayPilot（本程序）")).PerformClick();
+        menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("selfTrayMenuItem")).PerformClick();
         var selfDeadline = DateTime.UtcNow.AddSeconds(60);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < selfDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         check(!tray.Visible && !controller.Saved.ShowTrayIcon, "The manager tray icon can be hidden and the preference is saved.");
@@ -691,7 +691,7 @@ internal static class Diagnostics
         form.ActivateMainWindow();
         check(form.Visible, "The activation entry point reopens a manager with no tray icon.");
         BuildMenu();
-        menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("TrayPilot（本程序）")).PerformClick();
+        menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("selfTrayMenuItem")).PerformClick();
         selfDeadline = DateTime.UtcNow.AddSeconds(60);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < selfDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         check(tray.Visible && controller.Saved.ShowTrayIcon, "The manager tray icon can be shown again.");
@@ -751,7 +751,7 @@ internal static class Diagnostics
             check(rule.ImageIndex >= 0 && rulesList.SmallImageList!.Images.Count == rulesList.Items.Count && rule.SubItems[1].Text == own[0].Path,
                 "Hidden rules show application icons and paths.");
             rule.Selected = true; rulesList.Focus(); Application.DoEvents();
-            var removeRule = rulesDialog.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("删除选中规则并恢复图标"));
+            var removeRule = rulesDialog.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("removeRulesAndRestoreIcons"));
             removeRule.PerformClick();
             check(!controller.HasRule(own[0].Path) && own.All(x => Native.State(x) == 0) && rulesList.Items.Count == 0,
                 "Deleting a selected icon rule restores its icons and updates the empty list.");
@@ -773,7 +773,7 @@ internal static class Diagnostics
         var loaded = new Controller(Path.GetDirectoryName(settingsFile)!).Saved;
         check(loaded.Theme == "dark" && loaded.CloseToTray && loaded.Language == "en-US" && loaded.ShowAllHotkeyEnabled && loaded.ShowAllHotkey == (int)chosen && loaded.MainHotkeyEnabled && loaded.MainHotkey == (int)mainChosen && !loaded.ShowTrayIcon,
             "Language, close-to-tray and hotkey settings survive a controller reload.");
-        L.Set("missing-language"); check(L.Current == "zh-CN" && L.T("关于") == "关于", "Unknown language safely falls back to Simplified Chinese.");
+        L.Set("missing-language"); check(L.Current == "zh-CN" && L.T("about") == "关于", "Unknown language safely falls back to Simplified Chinese.");
         controller.Saved.Theme = "system"; controller.Saved.Language = "zh-CN"; controller.Saved.ShowAllHotkeyEnabled = false; controller.Saved.MainHotkeyEnabled = false; controller.Saved.ShowTrayIcon = true; controller.RemoveRule(own[0].Path);
     }
 }

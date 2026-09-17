@@ -88,7 +88,7 @@ internal static class Scanner
             if (shell && guid != HardwareRemovalGuid) continue;
             if (!owners.TryGetValue(path, out var list)) continue;
             string tooltip = key.GetValue("InitialTooltip") as string ?? "";
-            string name = shell ? L.T("安全删除硬件并弹出媒体") :
+            string name = shell ? L.T("safelyRemoveHardware") :
                 System.IO.Path.GetFileName(path).Equals("NVDisplay.Container.exe", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(tooltip)
                     ? tooltip : Name(path);
             var uidValue = key.GetValue("UID");

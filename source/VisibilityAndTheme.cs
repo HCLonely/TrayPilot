@@ -35,7 +35,7 @@ internal sealed partial class MainForm
             finally { UpdateEntryStates(); }
             UpdateStatus();
         }
-        catch (Exception ex) { status.Text = L.T("操作未完成") + ": " + ex.Message; }
+        catch (Exception ex) { status.Text = L.T("operationIncomplete") + ": " + ex.Message; }
         finally { CompleteOperation(); }
     }
     void ApplyTheme()
