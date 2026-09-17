@@ -112,6 +112,14 @@
     "搜索": "Search",
     "暂无隐藏规则": "No hidden-icon rules",
     "选择属性行后可复制信息。": "Select property rows to copy their information.",
-    "语言、托盘行为与键盘快捷键": "Language, tray behavior and keyboard shortcuts"
+    "语言、托盘行为与键盘快捷键": "Language, tray behavior and keyboard shortcuts",
+    "跟随系统": "Follow system",
+    "浅色": "Light",
+    "深色": "Dark",
+    "外观": "Appearance",
+    "显示所有快捷键": "Show all icons hotkey",
+    "隐藏规则命中快捷键": "Hide matching icons hotkey",
+    "自动隐藏已暂停": "Automatic hiding paused",
+    "显示所有会保留规则并暂停自动隐藏；隐藏规则命中会恢复规则。按 Ctrl 或 Alt 加其他键设置快捷键。": "Show all keeps rules and pauses automatic hiding. Hide matching icons resumes rules. Press Ctrl or Alt with another key to set a shortcut."
   }
 }

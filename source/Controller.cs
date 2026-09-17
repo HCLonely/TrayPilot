@@ -10,8 +10,12 @@ internal sealed class SavedState
     public bool ShowTrayIcon { get; set; } = true;
     public bool MainHotkeyEnabled { get; set; }
     public int MainHotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.M);
-    public bool HotkeyEnabled { get; set; }
-    public int Hotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.T);
+    public string Theme { get; set; } = "system";
+    public bool RulesPaused { get; set; }
+    public bool ShowAllHotkeyEnabled { get; set; }
+    public int ShowAllHotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.S);
+    public bool HideRulesHotkeyEnabled { get; set; }
+    public int HideRulesHotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.H);
 }
 internal sealed class Controller
 {

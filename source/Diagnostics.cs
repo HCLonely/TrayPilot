@@ -9,6 +9,11 @@ internal static class Diagnostics
     {
         try
         {
+            bool hoverPreview = args[0].Contains("-hover");
+            if (hoverPreview) args[0] = args[0].Replace("-hover", "");
+            bool darkPreview = args[0].Contains("-dark");
+            if (darkPreview) args[0] = args[0].Replace("-dark", "");
+            if (args[0] == "--write-icon" && args.Length == 2) { AppIcon.Save(args[1]); return 0; }
             if (args[0] == "--scan" && args.Length == 2)
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
@@ -19,6 +24,7 @@ internal static class Diagnostics
                 var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "preview-state");
                 var previewController = new Controller(folder); previewController.Saved.Language = "en-US";
                 if (args[0] == "--preview-rules-en") previewController.Saved.HiddenPaths.AddRange(Scanner.Scan().Select(x => x.Path).Distinct().Take(4));
+                if (darkPreview) previewController.Saved.Theme = "dark";
                 using var form = new MainForm(previewController, initialize: false);
                 using var capture = new System.Windows.Forms.Timer { Interval = 500 };
                 capture.Tick += (_, _) =>
@@ -43,6 +49,7 @@ internal static class Diagnostics
                 var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "preview-state");
                 var previewController = new Controller(folder);
                 if (args[0].EndsWith("-en")) previewController.Saved.Language = "en-US";
+                if (darkPreview) previewController.Saved.Theme = "dark";
                 using var form = new MainForm(previewController);
                 if (args[0] == "--preview-small-en") form.Size = form.MinimumSize;
                 if (args[0] == "--preview-grid")
@@ -56,6 +63,16 @@ internal static class Diagnostics
                         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                         typeof(MainForm).GetMethod("ShowMainMenu", flags)!.Invoke(form, null);
                         target = (ContextMenuStrip)typeof(MainForm).GetField("trayMenu", flags)!.GetValue(form)!;
+                    }
+                    if (hoverPreview)
+                    {
+                        var previewList = (ListView)typeof(MainForm).GetField("list", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(form)!;
+                        if (previewList.Items.Count > 0)
+                        {
+                            var rect = previewList.Items[0].Bounds;
+                            typeof(Control).GetMethod("OnMouseMove", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(previewList,
+                                new object[] { new MouseEventArgs(MouseButtons.None, 0, rect.Left + 10, rect.Top + 10, 0) });
+                        }
                     }
                     Application.DoEvents(); target.PerformLayout();
                     using var image = new Bitmap(target.Width, target.Height);
@@ -154,7 +171,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.4.1 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -222,6 +239,22 @@ internal static class Diagnostics
         check(own.All(x => Native.State(x) == 1) && controller.HasRule(own[0].Path), "Double-clicking visible icon hides application icons and saves rule.");
         var hidden = list.Items.Cast<ListViewItem>().First(x => ((TrayEntry)x.Tag!).Key == own[0].Key);
         check(hidden.ForeColor == Color.FromArgb(140, 145, 155) && hidden.ToolTipText.Contains("已隐藏"), "Hidden row and hover details reflect hidden state.");
+        foreach (bool grid in new[] { false, true })
+        {
+            layoutMode.Checked = grid; Application.DoEvents();
+            var hovered = list.Items[0]; hovered.EnsureVisible(); Application.DoEvents(); var bounds = hovered.Bounds;
+            typeof(Control).GetMethod("OnMouseMove", flags)!.Invoke(list, new object[] { new MouseEventArgs(MouseButtons.None, 0, bounds.Left + 10, bounds.Top + 10, 0) });
+            check(((TrayListView)list).HoveredItem == hovered, "Mouse hover tracks the correct item in list and grid layouts.");
+            using var bitmap = new Bitmap(list.Width, list.Height); list.DrawToBitmap(bitmap, list.ClientRectangle);
+            int blue = 0;
+            for (int y = Math.Max(0, bounds.Top); y < Math.Min(bitmap.Height, bounds.Bottom); y++)
+                for (int x = Math.Max(0, bounds.Left); x < Math.Min(bitmap.Width, bounds.Right); x++)
+                    if (bitmap.GetPixel(x, y).ToArgb() == UiTheme.Highlight.ToArgb()) blue++;
+            check(blue > 100, "Hovered items render a blue background in both layouts.");
+            typeof(Control).GetMethod("OnMouseLeave", flags)!.Invoke(list, new object[] { EventArgs.Empty });
+            check(((TrayListView)list).HoveredItem == null, "Hover highlight clears when the mouse leaves.");
+        }
+        layoutMode.Checked = false;
         using var normal = TrayImages.Create(own[0] with { State = 0 }, 24);
         using var faded = TrayImages.Create(own[0] with { State = 1 }, 24);
         long Alpha(Bitmap bitmap) { long sum = 0; for (int y = 0; y < bitmap.Height; y++) for (int x = 0; x < bitmap.Width; x++) sum += bitmap.GetPixel(x, y).A; return sum; }
@@ -308,11 +341,16 @@ internal static class Diagnostics
         var packs = L.Packs();
         check(packs.ContainsKey("zh-CN") && packs.ContainsKey("en-US") && packs["zh-CN"].Strings.Keys.ToHashSet().SetEquals(packs["en-US"].Strings.Keys),
             "External Simplified Chinese and English packs contain matching translation keys.");
-        check(new SavedState().CloseToTray && new SavedState().Language == "zh-CN" && !new SavedState().HotkeyEnabled,
+        check(new SavedState().CloseToTray && new SavedState().Language == "zh-CN" && !new SavedState().ShowAllHotkeyEnabled,
             "New and migrated settings default to close-to-tray, Chinese and no reserved hotkey.");
-        using var form = new MainForm(controller, initialize: false);
+        check(new SavedState().Theme == "system" && !new SavedState().HideRulesHotkeyEnabled, "Appearance defaults to following the system and new hotkeys start disabled.");
+        using var form = new MainForm(controller, initialize: false, visibilityScanner: () => own.Select(x => x with { State = Native.State(x) }).ToList());
         typeof(MainForm).GetField("entries", flags)!.SetValue(form, own.ToList());
         form.Show(); Application.DoEvents();
+        controller.Saved.Theme = "dark"; typeof(MainForm).GetMethod("ApplyTheme", flags)!.Invoke(form, null);
+        check(UiTheme.Dark && form.BackColor == UiTheme.Canvas, "Dark mode applies the dark palette to the main window.");
+        controller.Saved.Theme = "light"; typeof(MainForm).GetMethod("ApplyTheme", flags)!.Invoke(form, null);
+        check(!UiTheme.Dark, "Light mode restores the light palette.");
         var list = (ListView)typeof(MainForm).GetField("list", flags)!.GetValue(form)!;
         var search = (TextBox)typeof(MainForm).GetField("search", flags)!.GetValue(form)!;
         ((CheckBox)typeof(MainForm).GetField("autoRefresh", flags)!.GetValue(form)!).Checked = false;
@@ -337,12 +375,12 @@ internal static class Diagnostics
                 try
                 {
                     var controls = Descendants(dialog).ToList();
-                    var combo = controls.OfType<ComboBox>().Single();
+                    var combo = controls.OfType<ComboBox>().Single(x => x.Name == "language");
                     check(((MainForm.LanguageChoice)combo.SelectedItem!).Code == controller.Saved.Language, "Settings select the actual saved language on opening.");
                     combo.SelectedItem = combo.Items.Cast<MainForm.LanguageChoice>().Single(x => x.Code == "en-US");
                     controls.OfType<CheckBox>().Single(x => x.Text == L.T("关闭窗口后保留在托盘运行")).Checked = false;
-                    controls.OfType<CheckBox>().Single(x => x.Name == "menuHotkeyEnabled").Checked = false;
-                    typeof(Control).GetMethod("OnKeyDown", flags)!.Invoke(controls.OfType<TextBox>().Single(x => x.Name == "menuHotkey"),
+                    controls.OfType<CheckBox>().Single(x => x.Name == "showAllHotkeyEnabled").Checked = false;
+                    typeof(Control).GetMethod("OnKeyDown", flags)!.Invoke(controls.OfType<TextBox>().Single(x => x.Name == "showAllHotkey"),
                         new object[] { new KeyEventArgs(Keys.Control | Keys.Alt | Keys.K) });
                     controls.OfType<Button>().Single(x => x.Text == L.T("保存")).PerformClick();
                     saved = dialog.DialogResult == DialogResult.OK;
@@ -354,7 +392,7 @@ internal static class Diagnostics
             typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
             if (settingsError != null) throw settingsError;
             check(saved && controller.Saved.Language == "en-US" && !controller.Saved.CloseToTray
-                && controller.Saved.Hotkey == (int)(Keys.Control | Keys.Alt | Keys.K),
+                && controller.Saved.ShowAllHotkey == (int)(Keys.Control | Keys.Alt | Keys.K),
                 "Settings dialog saves language, close behavior and a captured key combination.");
             settingsTimer.Start();
             typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
@@ -465,7 +503,7 @@ internal static class Diagnostics
         int mainId = mainHotkey.Matches((nint)0x4A11) ? 0x4A11 : 0x4A12;
         Native.SendMessageW(form.Handle, 0x0312, mainId, 0); Application.DoEvents();
         check(form.Visible && !menu.Visible, "The main-window hotkey opens the window without opening quick controls.");
-        var hotkey = (GlobalHotkey)typeof(MainForm).GetField("hotkey", flags)!.GetValue(form)!;
+        var hotkey = (GlobalHotkey)typeof(MainForm).GetField("showAllHotkey", flags)!.GetValue(form)!;
         Keys chosen = Keys.None;
         foreach (var key in new[] { Keys.F6, Keys.F7, Keys.F8, Keys.F9, Keys.F10, Keys.F11 })
             if (hotkey.TrySet(true, Keys.Control | Keys.Alt | Keys.Shift | key)) { chosen = Keys.Control | Keys.Alt | Keys.Shift | key; break; }
@@ -481,8 +519,24 @@ internal static class Diagnostics
                 "Closing to tray keeps the application alive and preserves hidden icons.");
             // Route the registered WM_HOTKEY while the main window is hidden.
             int id = hotkey.Matches((nint)0x4A01) ? 0x4A01 : 0x4A02;
-            Native.SendMessageW(form.Handle, 0x0312, id, 0); Application.DoEvents();
-            check(menu.Visible && !form.Visible, "Global-hotkey dispatch opens quick controls while the main window stays hidden.");
+            typeof(MainForm).GetField("busy", flags)!.SetValue(form, true);
+            Native.SendMessageW(form.Handle, 0x0312, id, 0);
+            check((bool?)typeof(MainForm).GetField("pendingVisibilityPreset", flags)!.GetValue(form) == false, "Bulk hotkeys queue while a refresh is busy.");
+            typeof(MainForm).GetMethod("CompleteOperation", flags)!.Invoke(form, null); Application.DoEvents();
+            var presetDeadline = DateTime.UtcNow.AddSeconds(60);
+            while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < presetDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+            check(!menu.Visible && !form.Visible && controller.Saved.RulesPaused && controller.HasRule(own[0].Path) && own.All(x => Native.State(x) == 0), "Show-all hotkey restores icons while retaining and pausing rules.");
+            typeof(MainForm).GetMethod("RefreshAsync", flags)!.Invoke(form, null);
+            presetDeadline = DateTime.UtcNow.AddSeconds(60);
+            while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < presetDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+            check(own.All(x => Native.State(x) == 0), "Refresh does not rehide icons while saved rules are paused.");
+            var hideHotkey = (GlobalHotkey)typeof(MainForm).GetField("hideRulesHotkey", flags)!.GetValue(form)!;
+            var hideKeys = new[] { Keys.F2, Keys.F3, Keys.F4, Keys.F5 }.Select(x => Keys.Control | Keys.Alt | Keys.Shift | x).First(x => hideHotkey.TrySet(true, x));
+            int hideId = hideHotkey.Matches((nint)0x4A21) ? 0x4A21 : 0x4A22;
+            Native.SendMessageW(form.Handle, 0x0312, hideId, 0); Application.DoEvents();
+            presetDeadline = DateTime.UtcNow.AddSeconds(60);
+            while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < presetDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+            check(!controller.Saved.RulesPaused && own.All(x => Native.State(x) == 1), "Hide-matching hotkey resumes saved rules and hides matching icons.");
             menu.Close();
             check(hotkey.TrySet(false, chosen) && competitor.TrySet(true, chosen), "Disabling the hotkey releases the registration.");
         }
@@ -510,16 +564,16 @@ internal static class Diagnostics
         controller.Saved.CloseToTray = false; controller.Apply(own);
         directExit.Close();
         check(directExit.IsDisposed && own.All(x => Native.State(x) == 0), "With close-to-tray disabled, closing exits and restores icons.");
-        controller.Saved.CloseToTray = true; controller.Saved.Language = "en-US";
-        controller.Saved.HotkeyEnabled = true; controller.Saved.Hotkey = (int)chosen;
+        controller.Saved.CloseToTray = true; controller.Saved.Language = "en-US"; controller.Saved.Theme = "dark";
+        controller.Saved.ShowAllHotkeyEnabled = true; controller.Saved.ShowAllHotkey = (int)chosen;
         controller.Saved.MainHotkeyEnabled = true; controller.Saved.MainHotkey = (int)mainChosen; controller.Saved.ShowTrayIcon = false;
         controller.Save();
         var settingsFile = (string)typeof(Controller).GetField("file", flags)!.GetValue(controller)!;
         var loaded = new Controller(Path.GetDirectoryName(settingsFile)!).Saved;
-        check(loaded.CloseToTray && loaded.Language == "en-US" && loaded.HotkeyEnabled && loaded.Hotkey == (int)chosen && loaded.MainHotkeyEnabled && loaded.MainHotkey == (int)mainChosen && !loaded.ShowTrayIcon,
+        check(loaded.Theme == "dark" && loaded.CloseToTray && loaded.Language == "en-US" && loaded.ShowAllHotkeyEnabled && loaded.ShowAllHotkey == (int)chosen && loaded.MainHotkeyEnabled && loaded.MainHotkey == (int)mainChosen && !loaded.ShowTrayIcon,
             "Language, close-to-tray and hotkey settings survive a controller reload.");
         L.Set("missing-language"); check(L.Current == "zh-CN" && L.T("关于") == "关于", "Unknown language safely falls back to Simplified Chinese.");
-        controller.Saved.Language = "zh-CN"; controller.Saved.HotkeyEnabled = false; controller.Saved.MainHotkeyEnabled = false; controller.Saved.ShowTrayIcon = true; controller.RemoveRule(own[0].Path);
+        controller.Saved.Theme = "system"; controller.Saved.Language = "zh-CN"; controller.Saved.ShowAllHotkeyEnabled = false; controller.Saved.MainHotkeyEnabled = false; controller.Saved.ShowTrayIcon = true; controller.RemoveRule(own[0].Path);
     }
 }
 

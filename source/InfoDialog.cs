@@ -12,7 +12,7 @@ internal static class InfoDialog
         info.Columns.Add(L.T("项目"), 220); info.Columns.Add(L.T("信息"), 515);
         foreach (var property in properties)
         {
-            var row = new ListViewItem(property.Key) { ToolTipText = property.Key + ": " + property.Value, BackColor = info.Items.Count % 2 == 0 ? Color.White : UiTheme.Stripe };
+            var row = new ListViewItem(property.Key) { ToolTipText = property.Key + ": " + property.Value, BackColor = info.Items.Count % 2 == 0 ? UiTheme.Surface : UiTheme.Stripe };
             row.SubItems.Add(property.Value); info.Items.Add(row);
         }
         info.Resize += (_, _) => info.Columns[1].Width = Math.Max(300, info.ClientSize.Width - info.Columns[0].Width - 24);
@@ -31,6 +31,7 @@ internal static class InfoDialog
         dialog.Disposed += (_, _) => spacing.Dispose();
         dialog.Controls.Add(UiTheme.Heading(about ? "TrayPilot" : title,
             about ? L.T("Windows 托盘图标管理工具，支持隐藏规则、快捷管理和多语言。") : L.T("选择属性行后可复制信息。"), font));
+        UiTheme.Apply(dialog); dialog.Shown += (_, _) => UiTheme.Apply(dialog);
         return dialog;
     }
 }

@@ -7,7 +7,7 @@ internal sealed partial class MainForm
     readonly Dictionary<Control, string> captions = new();
     readonly List<string> columnCaptions = new();
     NotifyIcon? trayIcon;
-    GlobalHotkey? hotkey, mainHotkey;
+    GlobalHotkey? showAllHotkey, hideRulesHotkey, mainHotkey;
     int trayPage, trayPages = 1;
     bool trayPagePending;
     internal const int TrayPageSize = 10;
@@ -36,13 +36,10 @@ internal sealed partial class MainForm
     {
         if (trayIcon != null) return;
         _ = Handle;
-        trayIcon = new NotifyIcon { Icon = SystemIcons.Application, Text = "TrayPilot", ContextMenuStrip = trayMenu, Visible = controller.Saved.ShowTrayIcon };
+        trayIcon = new NotifyIcon { Icon = AppIcon.Create(), Text = "TrayPilot", ContextMenuStrip = trayMenu, Visible = controller.Saved.ShowTrayIcon };
         trayIcon.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) { trayMenu.Close(); OpenMainWindow(); } };
         trayIcon.MouseDoubleClick += (_, e) => { if (e.Button == MouseButtons.Left) { trayMenu.Close(); OpenMainWindow(); } };
-        hotkey = new GlobalHotkey(Handle);
-        hotkeyWarning = !hotkey.TrySet(controller.Saved.HotkeyEnabled, (Keys)controller.Saved.Hotkey);
-        mainHotkey = new GlobalHotkey(Handle, 0x4A11);
-        hotkeyWarning |= !mainHotkey.TrySet(controller.Saved.MainHotkeyEnabled, (Keys)controller.Saved.MainHotkey);
+        RegisterShortcuts();
         UpdateStatus();
     }
 
@@ -52,10 +49,11 @@ internal sealed partial class MainForm
         search.PlaceholderText = L.T("搜索软件名称、进程或路径");
         for (int i = 0; i < columnCaptions.Count; i++) list.Columns[i].Text = L.T(columnCaptions[i]);
         while (menuBar.Items.Count > 0) { var item = menuBar.Items[0]; menuBar.Items.RemoveAt(0); item.Dispose(); }
+        menuBar.Items.Add(L.T("隐藏规则"), null, (_, _) => EditRules());
         menuBar.Items.Add(L.T("设置"), null, (_, _) => ShowSettings());
         menuBar.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
         menuBar.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
-        RenderList(); UpdateStatus();
+        RenderList(); UpdateStatus(); UiTheme.Apply(menuBar);
     }
 
     void ClearTrayMenu()
@@ -109,7 +107,7 @@ internal sealed partial class MainForm
             trayMenu.Items.Add(new ToolStripMenuItem(L.F("第 {0} / {1} 页", trayPage + 1, pages)) { Enabled = false });
             trayMenu.Items.Add(next);
         }
-        var self = new ToolStripMenuItem(L.T("TrayPilot（本程序）")) { Checked = controller.Saved.ShowTrayIcon, Enabled = !busy };
+        var self = new ToolStripMenuItem(L.T("TrayPilot（本程序）")) { Checked = controller.Saved.ShowTrayIcon, Image = AppIcon.Draw(20), Enabled = !busy };
         self.Click += (_, _) => RunAction(() =>
         {
             bool previous = controller.Saved.ShowTrayIcon;
@@ -125,6 +123,7 @@ internal sealed partial class MainForm
         trayMenu.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
+        UiTheme.Apply(trayMenu);
     }
 
     void MoveTrayPage(int delta)
@@ -186,110 +185,113 @@ internal sealed partial class MainForm
         try { if (Visible) dialog.ShowDialog(this); else dialog.ShowDialog(); } finally { UpdateTimer(); }
     }
 
+    void RegisterShortcuts()
+    {
+        showAllHotkey ??= new GlobalHotkey(Handle, 0x4A01);
+        mainHotkey ??= new GlobalHotkey(Handle, 0x4A11);
+        hideRulesHotkey ??= new GlobalHotkey(Handle, 0x4A21);
+        showAllHotkey.Dispose(); mainHotkey.Dispose(); hideRulesHotkey.Dispose();
+        hotkeyWarning = !showAllHotkey.TrySet(controller.Saved.ShowAllHotkeyEnabled, (Keys)controller.Saved.ShowAllHotkey);
+        hotkeyWarning |= !mainHotkey.TrySet(controller.Saved.MainHotkeyEnabled, (Keys)controller.Saved.MainHotkey);
+        hotkeyWarning |= !hideRulesHotkey.TrySet(controller.Saved.HideRulesHotkeyEnabled, (Keys)controller.Saved.HideRulesHotkey);
+    }
+
     void ShowSettings()
     {
         trayMenu.Close();
-        using var dialog = new Form { Text = L.T("设置"), Size = new(780, 610), FormBorderStyle = FormBorderStyle.FixedDialog,
+        using var dialog = new Form { Text = L.T("设置"), Size = new(800, 710), FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), BackColor = Color.White, ColumnCount = 2, RowCount = 8 };
-        foreach (int height in new[] { 42, 38, 38, 46, 46, 68, 40, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
-        panel.ColumnStyles.Add(new(SizeType.Absolute, 280)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 10 };
+        foreach (int height in new[] { 42, 42, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
+        panel.ColumnStyles.Add(new(SizeType.Absolute, 300)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
         if (packs.Count == 0) packs["zh-CN"] = new L.Pack { Name = "简体中文" };
-        var languages = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        var languages = new ThemeComboBox { Name = "language", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         languages.Items.AddRange(packs.Select(x => new LanguageChoice(x.Key, x.Value.Name)).ToArray());
         languages.SelectedIndex = Math.Max(0, languages.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == L.Current));
+        var themes = new ThemeComboBox { Name = "theme", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        themes.Items.AddRange(new[] { new LanguageChoice("system", L.T("跟随系统")), new LanguageChoice("light", L.T("浅色")), new LanguageChoice("dark", L.T("深色")) });
+        themes.SelectedIndex = Math.Max(0, themes.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == controller.Saved.Theme));
         var closeToTray = new CheckBox { Text = L.T("关闭窗口后保留在托盘运行"), Checked = controller.Saved.CloseToTray, AutoSize = true };
-        var enableHotkey = new CheckBox { Text = L.T("快捷管理菜单快捷键"), Name = "menuHotkeyEnabled", Checked = controller.Saved.HotkeyEnabled, AutoSize = true };
-        Keys selectedKeys = (Keys)controller.Saved.Hotkey;
-        var shortcut = new TextBox { Name = "menuHotkey", ReadOnly = true, Dock = DockStyle.Fill, Text = new KeysConverter().ConvertToString(selectedKeys) };
-        shortcut.KeyDown += (_, e) =>
-        {
-            e.SuppressKeyPress = true; e.Handled = true;
-            if (GlobalHotkey.Valid(e.KeyData)) { selectedKeys = e.KeyData; shortcut.Text = new KeysConverter().ConvertToString(selectedKeys); }
-        };
         var showTrayIcon = new CheckBox { Text = L.T("显示本程序托盘图标"), Checked = controller.Saved.ShowTrayIcon, AutoSize = true };
-        var enableMainHotkey = new CheckBox { Text = L.T("打开主界面快捷键"), Checked = controller.Saved.MainHotkeyEnabled, AutoSize = true };
-        Keys mainKeys = (Keys)controller.Saved.MainHotkey;
-        var mainShortcut = new TextBox { Name = "mainHotkey", ReadOnly = true, Dock = DockStyle.Fill, Text = new KeysConverter().ConvertToString(mainKeys) };
-        mainShortcut.KeyDown += (_, e) =>
-        {
-            e.SuppressKeyPress = true; e.Handled = true;
-            if (GlobalHotkey.Valid(e.KeyData)) { mainKeys = e.KeyData; mainShortcut.Text = new KeysConverter().ConvertToString(mainKeys); }
-        };
-        var help = new Label { Text = L.T("按 Ctrl 或 Alt 加其他键设置快捷键。隐藏本程序图标后，可再次运行程序打开主界面。"), AutoSize = true, MaximumSize = new(440, 0) };
-        var error = new Label { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(560, 0) };
-        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-        var save = UiTheme.Button(L.T("保存"));
-        var cancel = UiTheme.Button(L.T("取消")); cancel.DialogResult = DialogResult.Cancel;
-        buttons.Controls.Add(save); buttons.Controls.Add(cancel);
+        var enabled = new[] { controller.Saved.MainHotkeyEnabled, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.HideRulesHotkeyEnabled };
+        var keys = new[] { (Keys)controller.Saved.MainHotkey, (Keys)controller.Saved.ShowAllHotkey, (Keys)controller.Saved.HideRulesHotkey };
+        var names = new[] { "mainHotkey", "showAllHotkey", "hideRulesHotkey" };
+        var labels = new[] { "打开主界面快捷键", "显示所有快捷键", "隐藏规则命中快捷键" };
         panel.Controls.Add(new Label { Text = L.T("语言"), AutoSize = true }, 0, 0); panel.Controls.Add(languages, 1, 0);
-        panel.Controls.Add(closeToTray, 0, 1); panel.SetColumnSpan(closeToTray, 2);
-        panel.Controls.Add(enableHotkey, 0, 3); panel.Controls.Add(shortcut, 1, 3);
-        panel.Controls.Add(showTrayIcon, 0, 2); panel.SetColumnSpan(showTrayIcon, 2);
-        panel.Controls.Add(enableMainHotkey, 0, 4); panel.Controls.Add(mainShortcut, 1, 4);
-        panel.Controls.Add(help, 1, 5); panel.Controls.Add(error, 0, 6); panel.SetColumnSpan(error, 2);
-        panel.Controls.Add(buttons, 0, 7); panel.SetColumnSpan(buttons, 2);
-        help.ForeColor = UiTheme.Muted;
-        shortcut.BackColor = mainShortcut.BackColor = UiTheme.Header;
-        shortcut.ForeColor = mainShortcut.ForeColor = UiTheme.Ink;
-        dialog.Controls.Add(panel);
-        dialog.Controls.Add(UiTheme.Heading(L.T("设置"), L.T("语言、托盘行为与键盘快捷键"), Font));
+        panel.Controls.Add(new Label { Text = L.T("外观"), AutoSize = true }, 0, 1); panel.Controls.Add(themes, 1, 1);
+        panel.Controls.Add(closeToTray, 0, 2); panel.SetColumnSpan(closeToTray, 2);
+        panel.Controls.Add(showTrayIcon, 0, 3); panel.SetColumnSpan(showTrayIcon, 2);
+        for (int i = 0; i < 3; i++)
+        {
+            int index = i;
+            var toggle = new CheckBox { Name = names[i] + "Enabled", Text = L.T(labels[i]), AutoSize = true, Checked = enabled[i] };
+            toggle.CheckedChanged += (_, _) => enabled[index] = toggle.Checked;
+            var input = new TextBox { Name = names[i], ReadOnly = true, Dock = DockStyle.Fill, Text = new KeysConverter().ConvertToString(keys[i]) };
+            input.KeyDown += (_, e) =>
+            {
+                e.SuppressKeyPress = true; e.Handled = true;
+                if (GlobalHotkey.Valid(e.KeyData)) { keys[index] = e.KeyData; input.Text = new KeysConverter().ConvertToString(e.KeyData); }
+            };
+            panel.Controls.Add(toggle, 0, 4 + i); panel.Controls.Add(input, 1, 4 + i);
+        }
+        var help = new Label { Text = L.T("显示所有会保留规则并暂停自动隐藏；隐藏规则命中会恢复规则。按 Ctrl 或 Alt 加其他键设置快捷键。"), AutoSize = true, MaximumSize = new(660, 0), ForeColor = UiTheme.Muted };
+        var error = new Label { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(660, 0) };
+        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
+        var save = UiTheme.Button(L.T("保存")); var cancel = UiTheme.Button(L.T("取消")); cancel.DialogResult = DialogResult.Cancel;
+        buttons.Controls.Add(save); buttons.Controls.Add(cancel);
+        panel.Controls.Add(help, 0, 7); panel.SetColumnSpan(help, 2);
+        panel.Controls.Add(error, 0, 8); panel.SetColumnSpan(error, 2);
+        panel.Controls.Add(buttons, 0, 9); panel.SetColumnSpan(buttons, 2);
+        dialog.Controls.Add(panel); dialog.Controls.Add(UiTheme.Heading(L.T("设置"), L.T("语言、托盘行为与键盘快捷键"), Font));
         dialog.CancelButton = cancel;
         save.Click += (_, _) =>
         {
-            hotkey ??= new GlobalHotkey(Handle);
-            mainHotkey ??= new GlobalHotkey(Handle, 0x4A11);
-            bool previousMainEnabled = controller.Saved.MainHotkeyEnabled, previousTray = controller.Saved.ShowTrayIcon;
-            int previousMainKeys = controller.Saved.MainHotkey;
-            bool previousEnabled = controller.Saved.HotkeyEnabled;
-            int previousKeys = controller.Saved.Hotkey;
-            bool previousClose = controller.Saved.CloseToTray;
-            string previousLanguage = controller.Saved.Language;
-            if ((enableHotkey.Checked && !GlobalHotkey.Valid(selectedKeys)) || (enableMainHotkey.Checked && !GlobalHotkey.Valid(mainKeys))
-                || (enableHotkey.Checked && enableMainHotkey.Checked && selectedKeys == mainKeys))
+            var active = keys.Where((_, index) => enabled[index]).ToList();
+            if (active.Any(x => !GlobalHotkey.Valid(x)) || active.Distinct().Count() != active.Count)
             { error.Text = L.T("快捷键无效或已被占用，请更换组合。"); return; }
-            hotkey.Dispose(); mainHotkey.Dispose();
-            if (!hotkey.TrySet(enableHotkey.Checked, selectedKeys) || !mainHotkey.TrySet(enableMainHotkey.Checked, mainKeys))
+            var old = new { controller.Saved.MainHotkeyEnabled, controller.Saved.MainHotkey, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.ShowAllHotkey,
+                controller.Saved.HideRulesHotkeyEnabled, controller.Saved.HideRulesHotkey, controller.Saved.Theme, controller.Saved.Language, controller.Saved.CloseToTray, controller.Saved.ShowTrayIcon };
+            void Restore()
             {
-                hotkey.Dispose(); mainHotkey.Dispose();
-                hotkeyWarning = !hotkey.TrySet(previousEnabled, (Keys)previousKeys);
-                hotkeyWarning |= !mainHotkey.TrySet(previousMainEnabled, (Keys)previousMainKeys);
-                UpdateStatus(); error.Text = L.T("快捷键无效或已被占用，请更换组合。"); return;
+                controller.Saved.MainHotkeyEnabled = old.MainHotkeyEnabled; controller.Saved.MainHotkey = old.MainHotkey;
+                controller.Saved.ShowAllHotkeyEnabled = old.ShowAllHotkeyEnabled; controller.Saved.ShowAllHotkey = old.ShowAllHotkey;
+                controller.Saved.HideRulesHotkeyEnabled = old.HideRulesHotkeyEnabled; controller.Saved.HideRulesHotkey = old.HideRulesHotkey;
+                controller.Saved.Theme = old.Theme; controller.Saved.Language = old.Language;
+                controller.Saved.CloseToTray = old.CloseToTray; controller.Saved.ShowTrayIcon = old.ShowTrayIcon;
+                RegisterShortcuts(); UpdateStatus();
             }
+            controller.Saved.MainHotkeyEnabled = enabled[0]; controller.Saved.MainHotkey = (int)keys[0];
+            controller.Saved.ShowAllHotkeyEnabled = enabled[1]; controller.Saved.ShowAllHotkey = (int)keys[1];
+            controller.Saved.HideRulesHotkeyEnabled = enabled[2]; controller.Saved.HideRulesHotkey = (int)keys[2];
+            RegisterShortcuts();
+            if (hotkeyWarning) { Restore(); error.Text = L.T("快捷键无效或已被占用，请更换组合。"); return; }
             try
             {
-                controller.Saved.HotkeyEnabled = enableHotkey.Checked; controller.Saved.Hotkey = (int)selectedKeys;
-                controller.Saved.CloseToTray = closeToTray.Checked; controller.Saved.Language = ((LanguageChoice)languages.SelectedItem!).Code;
-                controller.Saved.MainHotkeyEnabled = enableMainHotkey.Checked; controller.Saved.MainHotkey = (int)mainKeys;
-                controller.Saved.ShowTrayIcon = showTrayIcon.Checked;
-                controller.Save(); if (trayIcon != null) trayIcon.Visible = controller.Saved.ShowTrayIcon; hotkeyWarning = false; L.Set(controller.Saved.Language); ApplyLanguage(); dialog.DialogResult = DialogResult.OK;
+                controller.Saved.Language = ((LanguageChoice)languages.SelectedItem!).Code;
+                controller.Saved.Theme = ((LanguageChoice)themes.SelectedItem!).Code;
+                controller.Saved.CloseToTray = closeToTray.Checked; controller.Saved.ShowTrayIcon = showTrayIcon.Checked;
+                controller.Save();
             }
-            catch (Exception ex)
-            {
-                controller.Saved.HotkeyEnabled = previousEnabled; controller.Saved.Hotkey = previousKeys;
-                controller.Saved.CloseToTray = previousClose; controller.Saved.Language = previousLanguage;
-                controller.Saved.MainHotkeyEnabled = previousMainEnabled; controller.Saved.MainHotkey = previousMainKeys;
-                controller.Saved.ShowTrayIcon = previousTray;
-                if (trayIcon != null) trayIcon.Visible = previousTray;
-                hotkey.Dispose(); mainHotkey.Dispose();
-                hotkeyWarning = !hotkey.TrySet(previousEnabled, (Keys)previousKeys);
-                hotkeyWarning |= !mainHotkey.TrySet(previousMainEnabled, (Keys)previousMainKeys); L.Set(previousLanguage); ApplyLanguage(); error.Text = ex.Message;
-            }
+            catch (Exception ex) { Restore(); error.Text = ex.Message; return; }
+            if (trayIcon != null) trayIcon.Visible = controller.Saved.ShowTrayIcon;
+            L.Set(controller.Saved.Language); ApplyLanguage(); ApplyTheme(); dialog.DialogResult = DialogResult.OK;
         };
+        UiTheme.Apply(dialog); dialog.Shown += (_, _) => UiTheme.Apply(dialog);
         timer.Stop();
         try { if (Visible) dialog.ShowDialog(this); else dialog.ShowDialog(); } finally { UpdateTimer(); }
     }
 
     protected override void WndProc(ref Message message)
     {
-        if (message.Msg == 0x0312 && hotkey?.Matches(message.WParam) == true) { ShowMainMenu(); return; }
+        if (message.Msg == 0x0312 && showAllHotkey?.Matches(message.WParam) == true) { _ = ApplyVisibilityPresetAsync(false); return; }
         if (message.Msg == 0x0312 && mainHotkey?.Matches(message.WParam) == true) { OpenMainWindow(); return; }
+        if (message.Msg == 0x0312 && hideRulesHotkey?.Matches(message.WParam) == true) { _ = ApplyVisibilityPresetAsync(true); return; }
         base.WndProc(ref message);
     }
     protected override void OnHandleDestroyed(EventArgs e)
     {
-        hotkey?.Dispose(); hotkey = null; mainHotkey?.Dispose(); mainHotkey = null;
+        showAllHotkey?.Dispose(); showAllHotkey = null; hideRulesHotkey?.Dispose(); hideRulesHotkey = null; mainHotkey?.Dispose(); mainHotkey = null;
         base.OnHandleDestroyed(e);
     }
     protected override void OnHandleCreated(EventArgs e)
@@ -297,10 +299,7 @@ internal sealed partial class MainForm
         base.OnHandleCreated(e);
         if (trayIcon != null && controller != null)
         {
-            hotkey = new GlobalHotkey(Handle);
-            hotkeyWarning = !hotkey.TrySet(controller.Saved.HotkeyEnabled, (Keys)controller.Saved.Hotkey);
-            mainHotkey = new GlobalHotkey(Handle, 0x4A11);
-            hotkeyWarning |= !mainHotkey.TrySet(controller.Saved.MainHotkeyEnabled, (Keys)controller.Saved.MainHotkey);
+            RegisterShortcuts();
         }
     }
 }
