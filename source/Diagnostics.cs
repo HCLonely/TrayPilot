@@ -55,6 +55,7 @@ internal static class Diagnostics
                         typeof(MainForm).GetMethod("ShowMainMenu", flags)!.Invoke(form, null);
                         target = (ContextMenuStrip)typeof(MainForm).GetField("trayMenu", flags)!.GetValue(form)!;
                     }
+                    Application.DoEvents(); target.PerformLayout();
                     using var image = new Bitmap(target.Width, target.Height);
                     target.DrawToBitmap(image, new Rectangle(Point.Empty, target.Size)); image.Save(args[1]); form.RequestExit();
                 };
@@ -151,7 +152,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.3 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.3.1 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -386,8 +387,8 @@ internal static class Diagnostics
             throw new Exception("Test owner missing from tray pages.");
         }
         BuildMenu();
-        check(tray.Visible && menu.Items[0].Text == "打开主界面" && menu.Items[1].Text == "关于" && menu.Items[2].Text == "退出",
-            "Manager tray icon offers Open, About and Exit.");
+        check(tray.Visible && menu.Items[0].Text == "打开主界面" && menu.Items[menu.Items.Count - 3].Text == "关于" && menu.Items[menu.Items.Count - 1].Text == "退出",
+            "Tray menu places Open first, Settings and About near the bottom, and Exit last.");
         check(AppRow().Checked && list.Items.Count == 0, "Tray quick controls include applications excluded by the main search filter.");
         foreach (bool expectedHidden in new[] { true, false })
         {
@@ -415,6 +416,21 @@ internal static class Diagnostics
             menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Text == L.T("下一页")).PerformClick();
             Application.DoEvents();
             check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 1 && menu.Visible, "Next-page click reopens quick controls on the requested page.");
+            void Wheel(int delta)
+            {
+                Native.SendMessageW(menu.Handle, 0x020A, (nint)((long)(ushort)(short)delta << 16), 0);
+                Application.DoEvents();
+            }
+            Wheel(120);
+            check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 0 && menu.Visible, "Wheel up moves to the previous page and keeps the menu open.");
+            Wheel(120);
+            check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 0, "Wheel up stops at the first page.");
+            Wheel(-60);
+            check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 0, "High-resolution wheel deltas accumulate before changing page.");
+            Wheel(-60);
+            check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == 1 && menu.Visible, "Wheel down moves to the next page.");
+            Wheel(-12000);
+            check((int)typeof(MainForm).GetField("trayPage", flags)!.GetValue(form)! == previousPage && menu.Visible, "Fast scrolling stops at the final page.");
             menu.Close();
         }
         check(allRows.Contains(own[0].Path), "Pagination keeps the test application reachable.");

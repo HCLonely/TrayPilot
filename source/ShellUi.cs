@@ -2,13 +2,14 @@ namespace TrayPilot;
 
 internal sealed partial class MainForm
 {
-    readonly ContextMenuStrip trayMenu = new() { ShowCheckMargin = true, ShowImageMargin = true };
+    readonly PagedTrayMenu trayMenu = new() { ShowCheckMargin = true, ShowImageMargin = true };
     readonly MenuStrip menuBar = new();
     readonly Dictionary<Control, string> captions = new();
     readonly List<string> columnCaptions = new();
     NotifyIcon? trayIcon;
     GlobalHotkey? hotkey, mainHotkey;
-    int trayPage;
+    int trayPage, trayPages = 1;
+    bool trayPagePending;
     internal const int TrayPageSize = 10;
     internal sealed record LanguageChoice(string Code, string Name) { public override string ToString() => Name; }
     bool exitRequested, hotkeyWarning;
@@ -25,6 +26,7 @@ internal sealed partial class MainForm
         Controls.Add(menuBar); MainMenuStrip = menuBar;
         ApplyLanguage();
         trayMenu.Opening += (_, _) => BuildTrayMenu();
+        trayMenu.PageRequested += MoveTrayPage;
         if (initialize) InitializeTray();
     }
 
@@ -68,14 +70,12 @@ internal sealed partial class MainForm
     {
         ClearTrayMenu();
         trayMenu.Items.Add(L.T("打开主界面"), null, (_, _) => OpenMainWindow());
-        trayMenu.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
-        trayMenu.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add(new ToolStripMenuItem(L.T("托盘图标（√ 表示显示，单击切换）")) { Enabled = false });
         var groups = entries.Where(x => x.Pid != Environment.ProcessId && Scanner.SameOwner(x))
             .GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
         groups = groups.Where(g => g.Any(x => Native.State(x) is 0 or 1)).ToList();
-        int pages = Math.Max(1, (groups.Count + TrayPageSize - 1) / TrayPageSize);
+        int pages = trayPages = Math.Max(1, (groups.Count + TrayPageSize - 1) / TrayPageSize);
         trayPage = Math.Clamp(trayPage, 0, pages - 1);
         foreach (var group in groups.Skip(trayPage * TrayPageSize).Take(TrayPageSize))
         {
@@ -103,13 +103,7 @@ internal sealed partial class MainForm
         {
             var previous = new ToolStripMenuItem(L.T("上一页")) { Enabled = trayPage > 0 };
             var next = new ToolStripMenuItem(L.T("下一页")) { Enabled = trayPage + 1 < pages };
-            void MovePage(int delta)
-            {
-                var location = trayMenu.Location;
-                trayMenu.Close(); trayPage += delta;
-                BeginInvoke(() => { if (!IsDisposed && !closing) { trayMenu.Show(location); Native.SetForegroundWindow(trayMenu.Handle); } });
-            }
-            previous.Click += (_, _) => MovePage(-1); next.Click += (_, _) => MovePage(1);
+            previous.Click += (_, _) => MoveTrayPage(-1); next.Click += (_, _) => MoveTrayPage(1);
             trayMenu.Items.Add(previous);
             trayMenu.Items.Add(new ToolStripMenuItem(L.F("第 {0} / {1} 页", trayPage + 1, pages)) { Enabled = false });
             trayMenu.Items.Add(next);
@@ -127,6 +121,28 @@ internal sealed partial class MainForm
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add(L.T("刷新"), null, async (_, _) => { trayMenu.Close(); await RefreshAsync(); });
         trayMenu.Items.Add(L.T("设置"), null, (_, _) => ShowSettings());
+        trayMenu.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
+        trayMenu.Items.Add(new ToolStripSeparator());
+        trayMenu.Items.Add(L.T("退出"), null, (_, _) => RequestExit());
+    }
+
+    void MoveTrayPage(int delta)
+    {
+        if (closing || IsDisposed) return;
+        int nextPage = (int)Math.Clamp((long)trayPage + delta, 0, trayPages - 1);
+        if (nextPage == trayPage) return;
+        trayPage = nextPage;
+        if (trayPagePending) return;
+        var location = trayMenu.Location;
+        trayPagePending = true;
+        trayMenu.Close();
+        BeginInvoke(() =>
+        {
+            trayPagePending = false;
+            if (IsDisposed || closing) return;
+            trayMenu.Show(location);
+            Native.SetForegroundWindow(trayMenu.Handle);
+        });
     }
 
     void ShowMainMenu()
