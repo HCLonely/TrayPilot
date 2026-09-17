@@ -82,7 +82,7 @@ Hotkeys remain available while the main window is hidden. The former quick-contr
 
 **Appearance** offers Follow system (default), Light and Dark across the main window, Settings, Properties, About, rules and menus. Follow system responds to system theme changes.
 
-**Language** offers Simplified Chinese (default) and English, switching immediately after saving. Language, theme, close-to-tray behavior, own-icon visibility, automatic-hiding pause state and hotkeys are persisted. Application names, paths and third-party tooltip text retain their original language.
+**Language** offers Simplified Chinese and English. On first launch or when no language is configured, the system UI language is matched to an available language pack; unsupported languages fall back to English. Manual selections take effect after saving and are retained on subsequent launches. Language, theme, close-to-tray behavior, own-icon visibility, automatic-hiding pause state and hotkeys are persisted. Application names, paths and third-party tooltip text retain their original language.
 
 ### Add a language pack
 
@@ -98,7 +98,7 @@ Runtime language packs are in `app/languages/`; source packs are in `source/lang
 }
 ```
 
-Keys are short, stable semantic English identifiers in `camelCase` (for example, `mainWindowTitle` and `trayIconDetails`), without display punctuation, line breaks or format placeholders. Copy an existing complete pack and translate only the values in `Strings`, retaining keys and placeholders such as `{0}` and `{1}`. The filename without its extension identifies the language; `Name` is its label in Settings. Reopen Settings to discover added packs. Missing translations fall back to Chinese. Missing or malformed packs do not prevent normal icon management.
+Keys are short, stable semantic English identifiers in `camelCase` (for example, `mainWindowTitle` and `trayIconDetails`), without display punctuation, line breaks or format placeholders. Copy an existing complete pack and translate only the values in `Strings`, retaining keys and placeholders such as `{0}` and `{1}`. The filename without its extension identifies the language; `Name` is its label in Settings. Reopen Settings to discover added packs. Missing translations fall back to built-in English. Missing or malformed packs do not prevent normal icon management.
 
 ## Configuration and recovery
 

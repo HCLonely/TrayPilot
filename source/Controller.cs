@@ -5,7 +5,7 @@ internal sealed class SavedState
 {
     public List<string> HiddenPaths { get; set; } = new();
     public List<TrayEntry> Recovery { get; set; } = new();
-    public string Language { get; set; } = "zh-CN";
+    public string Language { get; set; } = L.SystemLanguage;
     public bool CloseToTray { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;
     public bool MainHotkeyEnabled { get; set; }

@@ -520,8 +520,8 @@ internal static class Diagnostics
         var packs = L.Packs();
         check(packs.ContainsKey("zh-CN") && packs.ContainsKey("en-US") && packs["zh-CN"].Strings.Keys.ToHashSet().SetEquals(packs["en-US"].Strings.Keys),
             "External Simplified Chinese and English packs contain matching translation keys.");
-        check(new SavedState().CloseToTray && new SavedState().Language == "zh-CN" && !new SavedState().ShowAllHotkeyEnabled,
-            "New and migrated settings default to close-to-tray, Chinese and no reserved hotkey.");
+        check(new SavedState().CloseToTray && new SavedState().Language == L.SystemLanguage && !new SavedState().ShowAllHotkeyEnabled,
+            "New and migrated settings default to close-to-tray, the supported system language (otherwise English) and no reserved hotkey.");
         check(new SavedState().Theme == "system" && !new SavedState().HideRulesHotkeyEnabled, "Appearance defaults to following the system and new hotkeys start disabled.");
         using var form = new MainForm(controller, initialize: false, visibilityScanner: () => own.Select(x => x with { State = Native.State(x) }).ToList(), startup: startup);
         typeof(MainForm).GetField("entries", flags)!.SetValue(form, own.ToList());

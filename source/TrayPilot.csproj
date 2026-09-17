@@ -6,7 +6,7 @@
     <AssemblyName>TrayPilot</AssemblyName><Version>0.5.4</Version><ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="languages\zh-CN.json" LogicalName="TrayPilot.languages.zh-CN.json" />
+    <EmbeddedResource Include="languages\en-US.json" LogicalName="TrayPilot.languages.en-US.json" />
     <Content Include="languages\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 </Project>

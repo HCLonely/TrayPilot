@@ -221,7 +221,6 @@ internal sealed partial class MainForm
         foreach (int height in new[] { 42, 42, 38, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
         panel.ColumnStyles.Add(new(SizeType.Absolute, 300)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
-        if (packs.Count == 0) packs["zh-CN"] = new L.Pack { Name = "simplifiedChinese" };
         var languages = new ThemeComboBox { Name = "language", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         languages.Items.AddRange(packs.Select(x => new LanguageChoice(x.Key, x.Value.Name)).ToArray());
         languages.SelectedIndex = Math.Max(0, languages.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == L.Current));

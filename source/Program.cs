@@ -4,7 +4,7 @@ internal static class Program
     [STAThread] static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        L.Set("zh-CN");
+        L.Set(L.SystemLanguage);
         bool startup = args.Length == 1 && args[0] == "--startup";
         if (args.Length > 0 && !startup) { Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException); return Diagnostics.Run(args); }
         try
