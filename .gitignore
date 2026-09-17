@@ -1,0 +1,8 @@
+/app/
+/source/bin/
+/source/obj/
+/integration-*/
+/preview-state/
+/preview*.png
+/test-report*.txt
+/*.zip
