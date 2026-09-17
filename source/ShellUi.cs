@@ -187,8 +187,8 @@ internal sealed partial class MainForm
     void ShowAbout()
     {
         trayMenu.Close();
-        const string projectUrl = "https://github.com/HCLonely/TrayPilot";
-        var version = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
+        const string projectUrl = UpdateChecker.ProjectUrl;
+        var version = UpdateChecker.CurrentVersionText;
         using var dialog = InfoDialog.Create(L.T("about") + " TrayPilot", new Dictionary<string, string>
         {
             [L.T("applicationName")] = "TrayPilot", [L.T("version")] = version,
@@ -221,8 +221,9 @@ internal sealed partial class MainForm
         trayMenu.Close();
         using var dialog = new Form { Text = L.T("settings"), Size = new(800, 750), FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 11 };
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 12 };
         foreach (int height in new[] { 42, 42, 38, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
+        panel.RowStyles.Insert(9, new RowStyle(SizeType.Absolute, 48));
         panel.ColumnStyles.Add(new(SizeType.Absolute, 300)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
         var languages = new ThemeComboBox { Name = "language", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
@@ -266,8 +267,45 @@ internal sealed partial class MainForm
         var save = UiTheme.Button(L.T("save")); var cancel = UiTheme.Button(L.T("cancel")); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save); buttons.Controls.Add(cancel);
         panel.Controls.Add(help, 0, 8); panel.SetColumnSpan(help, 2);
-        panel.Controls.Add(error, 0, 9); panel.SetColumnSpan(error, 2);
-        panel.Controls.Add(buttons, 0, 10); panel.SetColumnSpan(buttons, 2);
+        panel.Controls.Add(new Label { Text = L.F("currentVersion", UpdateChecker.CurrentVersionText), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 9);
+        var checkUpdate = UiTheme.Button(L.T("checkForUpdates")); checkUpdate.Name = "checkForUpdates";
+        panel.Controls.Add(checkUpdate, 1, 9);
+        using var updateCancellation = new CancellationTokenSource();
+        var updateToken = updateCancellation.Token;
+        dialog.FormClosed += (_, _) => updateCancellation.Cancel();
+        checkUpdate.Click += async (_, _) =>
+        {
+            checkUpdate.Enabled = false; checkUpdate.Text = L.T("checkingForUpdates");
+            try
+            {
+                var release = await UpdateChecker.CheckAsync(updateToken);
+                if (updateToken.IsCancellationRequested || dialog.IsDisposed) return;
+                if (release == null)
+                    MessageBox.Show(dialog, L.T("noPublishedRelease"), L.T("checkForUpdates"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                else if (!release.IsNewer)
+                    MessageBox.Show(dialog, L.F("alreadyUpToDate", UpdateChecker.CurrentVersionText), L.T("checkForUpdates"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                else if (MessageBox.Show(dialog, L.F("updateAvailable", UpdateChecker.CurrentVersionText, release.Tag),
+                    L.T("checkForUpdates"), MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                {
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Url) { UseShellExecute = true }); }
+                    catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+                    { MessageBox.Show(dialog, L.T("openUpdatePageFailed") + "\n" + release.Url, L.T("checkForUpdates"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                }
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or IOException)
+            {
+                if (!updateToken.IsCancellationRequested && !dialog.IsDisposed)
+                    MessageBox.Show(dialog, L.T(ex is OperationCanceledException ? "updateCheckTimedOut" : "updateCheckFailed"),
+                        L.T("checkForUpdates"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                if (!updateToken.IsCancellationRequested && !dialog.IsDisposed)
+                { checkUpdate.Enabled = true; checkUpdate.Text = L.T("checkForUpdates"); }
+            }
+        };
+        panel.Controls.Add(error, 0, 10); panel.SetColumnSpan(error, 2);
+        panel.Controls.Add(buttons, 0, 11); panel.SetColumnSpan(buttons, 2);
         dialog.Controls.Add(panel); dialog.Controls.Add(UiTheme.Heading(L.T("settings"), L.T("settingsPageDescription"), Font));
         dialog.CancelButton = cancel;
         save.Click += (_, _) =>
