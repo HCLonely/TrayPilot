@@ -126,6 +126,15 @@ internal sealed partial class MainForm
         if (groups.Count == 0) trayMenu.Items.Add(new ToolStripMenuItem(L.T("暂无可管理的图标")) { Enabled = false });
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add(L.T("刷新"), null, async (_, _) => { trayMenu.Close(); await RefreshAsync(); });
+        var autoStart = new ToolStripMenuItem(L.T("开机启动")) { Name = "startup", CheckOnClick = false };
+        try { autoStart.Checked = startup.Enabled; }
+        catch (Exception ex) { autoStart.Enabled = false; autoStart.ToolTipText = ex.Message; }
+        autoStart.Click += (_, _) =>
+        {
+            try { startup.SetEnabled(!startup.Enabled); autoStart.Checked = startup.Enabled; }
+            catch (Exception ex) { MessageBox.Show(ex.Message, L.T("开机启动设置失败"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        };
+        trayMenu.Items.Add(autoStart);
         trayMenu.Items.Add(L.T("设置"), null, (_, _) => ShowSettings());
         trayMenu.Items.Add(L.T("关于"), null, (_, _) => ShowAbout());
         trayMenu.Items.Add(new ToolStripSeparator());
@@ -206,10 +215,10 @@ internal sealed partial class MainForm
     void ShowSettings()
     {
         trayMenu.Close();
-        using var dialog = new Form { Text = L.T("设置"), Size = new(800, 710), FormBorderStyle = FormBorderStyle.FixedDialog,
+        using var dialog = new Form { Text = L.T("设置"), Size = new(800, 750), FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 10 };
-        foreach (int height in new[] { 42, 42, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 11 };
+        foreach (int height in new[] { 42, 42, 38, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
         panel.ColumnStyles.Add(new(SizeType.Absolute, 300)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
         if (packs.Count == 0) packs["zh-CN"] = new L.Pack { Name = "简体中文" };
@@ -221,6 +230,11 @@ internal sealed partial class MainForm
         themes.SelectedIndex = Math.Max(0, themes.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == controller.Saved.Theme));
         var closeToTray = new CheckBox { Text = L.T("关闭窗口后保留在托盘运行"), Checked = controller.Saved.CloseToTray, AutoSize = true };
         var showTrayIcon = new CheckBox { Text = L.T("显示本程序托盘图标"), Checked = controller.Saved.ShowTrayIcon, AutoSize = true };
+        var autoStart = new CheckBox { Name = "startup", Text = L.T("开机启动"), AutoSize = true };
+        string? startupError = null;
+        try { autoStart.Checked = startup.Enabled; }
+        catch (Exception ex) { autoStart.Enabled = false; startupError = ex.Message; }
+        bool originalStartup = autoStart.Checked;
         var enabled = new[] { controller.Saved.MainHotkeyEnabled, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.HideRulesHotkeyEnabled };
         var keys = new[] { (Keys)controller.Saved.MainHotkey, (Keys)controller.Saved.ShowAllHotkey, (Keys)controller.Saved.HideRulesHotkey };
         var names = new[] { "mainHotkey", "showAllHotkey", "hideRulesHotkey" };
@@ -229,6 +243,7 @@ internal sealed partial class MainForm
         panel.Controls.Add(new Label { Text = L.T("外观"), AutoSize = true }, 0, 1); panel.Controls.Add(themes, 1, 1);
         panel.Controls.Add(closeToTray, 0, 2); panel.SetColumnSpan(closeToTray, 2);
         panel.Controls.Add(showTrayIcon, 0, 3); panel.SetColumnSpan(showTrayIcon, 2);
+        panel.Controls.Add(autoStart, 0, 4); panel.SetColumnSpan(autoStart, 2);
         for (int i = 0; i < 3; i++)
         {
             int index = i;
@@ -240,16 +255,16 @@ internal sealed partial class MainForm
                 e.SuppressKeyPress = true; e.Handled = true;
                 if (GlobalHotkey.Valid(e.KeyData)) { keys[index] = e.KeyData; input.Text = new KeysConverter().ConvertToString(e.KeyData); }
             };
-            panel.Controls.Add(toggle, 0, 4 + i); panel.Controls.Add(input, 1, 4 + i);
+            panel.Controls.Add(toggle, 0, 5 + i); panel.Controls.Add(input, 1, 5 + i);
         }
         var help = new Label { Text = L.T("显示所有会保留规则并暂停自动隐藏；隐藏规则命中会恢复规则。按 Ctrl 或 Alt 加其他键设置快捷键。"), AutoSize = true, MaximumSize = new(660, 0), ForeColor = UiTheme.Muted };
-        var error = new Label { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(660, 0) };
+        var error = new Label { Text = startupError ?? "", AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(660, 0) };
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
         var save = UiTheme.Button(L.T("保存")); var cancel = UiTheme.Button(L.T("取消")); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save); buttons.Controls.Add(cancel);
-        panel.Controls.Add(help, 0, 7); panel.SetColumnSpan(help, 2);
-        panel.Controls.Add(error, 0, 8); panel.SetColumnSpan(error, 2);
-        panel.Controls.Add(buttons, 0, 9); panel.SetColumnSpan(buttons, 2);
+        panel.Controls.Add(help, 0, 8); panel.SetColumnSpan(help, 2);
+        panel.Controls.Add(error, 0, 9); panel.SetColumnSpan(error, 2);
+        panel.Controls.Add(buttons, 0, 10); panel.SetColumnSpan(buttons, 2);
         dialog.Controls.Add(panel); dialog.Controls.Add(UiTheme.Heading(L.T("设置"), L.T("语言、托盘行为与键盘快捷键"), Font));
         dialog.CancelButton = cancel;
         save.Click += (_, _) =>
@@ -273,14 +288,27 @@ internal sealed partial class MainForm
             controller.Saved.HideRulesHotkeyEnabled = enabled[2]; controller.Saved.HideRulesHotkey = (int)keys[2];
             RegisterShortcuts();
             if (hotkeyWarning) { Restore(); error.Text = L.T("快捷键无效或已被占用，请更换组合。"); return; }
+            StartupRegistration.Snapshot? previousStartup = null;
             try
             {
+                if (autoStart.Enabled && autoStart.Checked != originalStartup)
+                {
+                    previousStartup = startup.Capture();
+                    startup.SetEnabled(autoStart.Checked);
+                }
                 controller.Saved.Language = ((LanguageChoice)languages.SelectedItem!).Code;
                 controller.Saved.Theme = ((LanguageChoice)themes.SelectedItem!).Code;
                 controller.Saved.CloseToTray = closeToTray.Checked; controller.Saved.ShowTrayIcon = showTrayIcon.Checked;
                 controller.Save();
             }
-            catch (Exception ex) { Restore(); error.Text = ex.Message; return; }
+            catch (Exception ex)
+            {
+                Restore(); error.Text = ex.Message;
+                if (previousStartup != null)
+                    try { startup.Restore(previousStartup); }
+                    catch (Exception rollback) { error.Text += "\n" + rollback.Message; }
+                return;
+            }
             if (trayIcon != null) trayIcon.Visible = controller.Saved.ShowTrayIcon;
             L.Set(controller.Saved.Language); ApplyLanguage(); ApplyTheme(); dialog.DialogResult = DialogResult.OK;
         };

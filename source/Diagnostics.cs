@@ -20,6 +20,7 @@ internal static class Diagnostics
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
+            if (args[0] == "--startup-test" && args.Length == 2) return TestStartup(args[1]);
             if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
             if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en")
             {
@@ -171,16 +172,103 @@ internal static class Diagnostics
         File.WriteAllLines(report, log); return 0;
     }
 
+    static int TestStartup(string report)
+    {
+        string key = @"Software\TrayPilot\Tests\startup-" + Guid.NewGuid().ToString("N");
+        var log = new List<string>();
+        try
+        {
+            TestStartupRegistration(new StartupRegistration(key), key, (ok, text) =>
+            {
+                if (!ok) throw new Exception("FAIL: " + text);
+                log.Add("PASS: " + text);
+            });
+            File.WriteAllLines(report, log); return 0;
+        }
+        finally { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(key, false); }
+    }
+
+    static void TestStartupRegistration(StartupRegistration startup, string keyPath, Action<bool, string> check)
+    {
+        check(!startup.Enabled, "Startup is disabled when no registration exists.");
+        var empty = startup.Capture();
+        startup.SetEnabled(true);
+        check(startup.Enabled && startup.Command == "\"" + Environment.ProcessPath + "\" --startup", "Startup registers a quoted executable with the background startup argument.");
+        using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(keyPath))
+            key.SetValue("Unrelated", "keep");
+        using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(keyPath + @"\Approval"))
+            key.SetValue("TrayPilot", new byte[] { 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
+        check(!startup.Enabled, "A Task Manager disabled startup entry is displayed as disabled.");
+        var disabled = startup.Capture();
+        startup.SetEnabled(true);
+        check(startup.Enabled, "Explicitly enabling startup clears the previous disabled approval.");
+        startup.Restore(disabled);
+        check(!startup.Enabled && startup.Capture().Approval?.Data is byte[] bytes && bytes[0] == 3,
+            "Startup rollback preserves the previous Windows approval state.");
+        startup.SetEnabled(false);
+        using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(keyPath))
+            check(!startup.Enabled && key!.GetValue("TrayPilot") == null && (string?)key.GetValue("Unrelated") == "keep",
+                "Disabling removes only TrayPilot's registration and preserves unrelated entries.");
+        startup.Restore(empty);
+        var controller = new Controller(Path.Combine(Path.GetTempPath(), "TrayPilot-startup-" + Guid.NewGuid().ToString("N")));
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        using (var settingsForm = new MainForm(controller, initialize: false, startup: startup))
+        {
+            using var timer = new System.Windows.Forms.Timer { Interval = 100 };
+            Exception? failure = null;
+            bool rejectSave = false;
+            timer.Tick += (_, _) =>
+            {
+                var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(x => x != settingsForm);
+                if (dialog == null) return;
+                timer.Stop();
+                try
+                {
+                    ((CheckBox)dialog.Controls.Find("startup", true).Single()).Checked = true;
+                    if (rejectSave)
+                    {
+                        var panel = dialog.Controls.OfType<TableLayoutPanel>().Single();
+                        panel.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("保存")).PerformClick();
+                        check(dialog.DialogResult != DialogResult.OK && !startup.Enabled,
+                            "A settings-file save failure rolls back the startup registration.");
+                    }
+                    dialog.CancelButton!.PerformClick();
+                }
+                catch (Exception ex) { failure = ex; dialog.Close(); }
+            };
+            timer.Start(); typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(settingsForm, null);
+            if (failure != null) throw failure;
+            check(!startup.Enabled, "Canceling Settings does not register the checked startup option.");
+            var stateFile = (string)typeof(Controller).GetField("file", flags)!.GetValue(controller)!;
+            Directory.CreateDirectory(stateFile + ".tmp"); // Deliberately make the atomic settings write fail.
+            rejectSave = true; timer.Start();
+            typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(settingsForm, null);
+            if (failure != null) throw failure;
+        }
+        foreach (bool iconVisible in new[] { true, false })
+        {
+            controller.Saved.ShowTrayIcon = iconVisible;
+            using var form = new MainForm(controller, initialize: false, startup: startup, startInTray: true);
+            typeof(MainForm).GetMethod("InitializeTray", flags)!.Invoke(form, null);
+            form.Show(); Application.DoEvents();
+            check(form.Visible != iconVisible, "Startup runs in the tray, or opens the window when its tray icon is disabled.");
+            form.ActivateMainWindow(); check(form.Visible, "A background startup window can be opened normally.");
+        }
+    }
+
     static int Test(string report)
     {
         var log = new List<string>();
         var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report))!, "integration-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         var controller = new Controller(Path.Combine(folder, "state"));
+        var startupKey = @"Software\TrayPilot\Tests\" + Path.GetFileName(folder);
+        var startup = new StartupRegistration(startupKey);
         Process? host = null;
         void Check(bool condition, string text) { if (!condition) throw new Exception("FAIL: " + text); log.Add("PASS: " + text); File.WriteAllLines(report, log); }
         try
         {
+            TestStartupRegistration(startup, startupKey, Check);
             Check(Controller.SamePath(Native.SystemProcessPath((uint)Environment.ProcessId), Environment.ProcessPath!), "System process path fallback agrees with the current executable.");
             Check(Native.SystemProcessStarted((uint)Environment.ProcessId) == Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks,
                 "System process creation time fallback preserves exact identity.");
@@ -190,7 +278,7 @@ internal static class Diagnostics
             Check(own.Count == 2, "Automatically discover both UID and GUID icons belonging to a separate process (message-only window).");
             Check(own.All(x => x.State == 0), "Both test icons initially displayed.");
             TestInteraction(controller, own, Check, folder);
-            TestShellFeatures(controller, own, Check);
+            TestShellFeatures(controller, own, Check, startup);
             controller.AddRule(own[0].Path); controller.Apply(own);
             Check(own.All(x => Native.State(x) == 1), "Hide both icons with NIS_HIDDEN while owner process stays alive.");
             Check(!host.HasExited, "Owner process remains running.");
@@ -215,7 +303,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.3 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.4 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -223,6 +311,7 @@ internal static class Diagnostics
         {
             try { new Controller(Path.Combine(folder, "state")).RestoreManaged(); } catch (Exception e) { log.Add("Cleanup: " + e.Message); }
             if (host != null) { File.WriteAllText(Path.Combine(folder, "stop"), ""); host.WaitForExit(5000); host.Dispose(); }
+            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(startupKey, throwOnMissingSubKey: false);
             File.WriteAllLines(report, log);
         }
     }
@@ -425,7 +514,7 @@ internal static class Diagnostics
         check(!Scanner.SameOwner(own[0]) && list.Items.Count == 0, "End-task menu removes all icons belonging to the terminated process.");
     }
 
-    static void TestShellFeatures(Controller controller, List<TrayEntry> own, Action<bool, string> check)
+    static void TestShellFeatures(Controller controller, List<TrayEntry> own, Action<bool, string> check, StartupRegistration startup)
     {
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
         var packs = L.Packs();
@@ -434,7 +523,7 @@ internal static class Diagnostics
         check(new SavedState().CloseToTray && new SavedState().Language == "zh-CN" && !new SavedState().ShowAllHotkeyEnabled,
             "New and migrated settings default to close-to-tray, Chinese and no reserved hotkey.");
         check(new SavedState().Theme == "system" && !new SavedState().HideRulesHotkeyEnabled, "Appearance defaults to following the system and new hotkeys start disabled.");
-        using var form = new MainForm(controller, initialize: false, visibilityScanner: () => own.Select(x => x with { State = Native.State(x) }).ToList());
+        using var form = new MainForm(controller, initialize: false, visibilityScanner: () => own.Select(x => x with { State = Native.State(x) }).ToList(), startup: startup);
         typeof(MainForm).GetField("entries", flags)!.SetValue(form, own.ToList());
         form.Show(); Application.DoEvents();
         controller.Saved.Theme = "dark"; typeof(MainForm).GetMethod("ApplyTheme", flags)!.Invoke(form, null);
@@ -465,6 +554,9 @@ internal static class Diagnostics
                 try
                 {
                     var controls = Descendants(dialog).ToList();
+                    var startupToggle = controls.OfType<CheckBox>().Single(x => x.Name == "startup");
+                    check(startupToggle.Checked == startup.Enabled, "Settings read the actual startup registration.");
+                    startupToggle.Checked = true;
                     var combo = controls.OfType<ComboBox>().Single(x => x.Name == "language");
                     check(((MainForm.LanguageChoice)combo.SelectedItem!).Code == controller.Saved.Language, "Settings select the actual saved language on opening.");
                     combo.SelectedItem = combo.Items.Cast<MainForm.LanguageChoice>().Single(x => x.Code == "en-US");
@@ -488,6 +580,7 @@ internal static class Diagnostics
             typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
             if (settingsError != null) throw settingsError;
             check(saved && controller.Saved.Language == "en-US", "Reopening settings retains the selected English language.");
+            check(startup.Enabled, "Saving settings enables startup and reopening retains it.");
             controller.Saved.CloseToTray = true;
         }
         L.Set("en-US"); typeof(MainForm).GetMethod("ApplyLanguage", flags)!.Invoke(form, null);
@@ -531,6 +624,12 @@ internal static class Diagnostics
         BuildMenu();
         check(tray.Visible && menu.Items[0].Text == "打开主界面" && menu.Items[menu.Items.Count - 3].Text == "关于" && menu.Items[menu.Items.Count - 1].Text == "退出",
             "Tray menu places Open first, Settings and About near the bottom, and Exit last.");
+        var startupItem = menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Name == "startup");
+        check(startupItem.Checked, "Tray menu reflects startup enabled in Settings.");
+        startupItem.PerformClick();
+        check(!startup.Enabled && !startupItem.Checked, "Tray startup toggle disables registration immediately.");
+        BuildMenu();
+        check(!menu.Items.OfType<ToolStripMenuItem>().Single(x => x.Name == "startup").Checked, "Rebuilt tray menu keeps startup state synchronized.");
         check(AppRow().Checked && list.Items.Count == 0, "Tray quick controls include applications excluded by the main search filter.");
         foreach (bool expectedHidden in new[] { true, false })
         {

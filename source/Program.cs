@@ -5,16 +5,17 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         L.Set("zh-CN");
-        if (args.Length > 0) { Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException); return Diagnostics.Run(args); }
+        bool startup = args.Length == 1 && args[0] == "--startup";
+        if (args.Length > 0 && !startup) { Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException); return Diagnostics.Run(args); }
         try
         {
             var controller = new Controller(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"));
             L.Set(controller.Saved.Language);
             using var activation = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\TrayPilot-Activate-v1");
             using var mutex = new Mutex(true, @"Local\TrayPilot-Manager-v1", out var created);
-            if (!created) { activation.Set(); return 0; }
+            if (!created) { if (!startup) activation.Set(); return 0; }
             controller.RestoreManaged();
-            using var form = new MainForm(controller);
+            using var form = new MainForm(controller, startInTray: startup);
             _ = form.Handle;
             var listener = ThreadPool.RegisterWaitForSingleObject(activation, (_, _) =>
             {

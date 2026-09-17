@@ -1,4 +1,4 @@
-# TrayPilot 0.5.3
+# TrayPilot 0.5.4
 
 Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installation is required. Keep the adjacent `app/languages` folder when moving or distributing the application.
 
@@ -14,6 +14,10 @@ NVIDIA Settings and the Safely Remove Hardware and Eject Media icon are supporte
 - Right-click and choose Add to matching rules to save a rule explicitly. Matching entries show a check-mark label in the list and a corner badge in the grid. Manual restore temporarily skips that application during automatic hiding, until Hide matching icons is used or TrayPilot restarts. The toolbar button and hotkey share the same rule action.
 - The Hide rules command is in the top menu. Rules display application icons, names and executable paths, including saved rules for applications that are not running. Missing executables use a fallback icon. Removing a rule restores its icons first.
 - Auto-refresh is enabled by default and can be turned off. Refresh keeps search text, selection and focus intact.
+
+## Start with Windows
+
+Off by default. Enable it in Settings (Save applies; Cancel discards) or toggle the checked tray-menu item immediately. Both read the current-user startup registration. On Windows sign-in, TrayPilot starts in the tray; if its tray icon is disabled, it opens the main window instead. Manual launches open the window as before. No administrator permission is required. Disabling removes its startup entry. Re-enable from the new location after moving the executable.
 
 ## System tray and exit
 

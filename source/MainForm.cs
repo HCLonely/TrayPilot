@@ -2,6 +2,7 @@ namespace TrayPilot;
 internal sealed partial class MainForm : Form
 {
     readonly Controller controller;
+    readonly StartupRegistration startup;
     readonly Func<List<TrayEntry>> visibilityScanner;
     readonly TextBox search = new() { PlaceholderText = "搜索软件名称、进程或路径", Width = 280 };
     readonly ListView list = new TrayListView() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false };
@@ -14,9 +15,10 @@ internal sealed partial class MainForm : Form
     List<TrayEntry> entries = new();
     string? renderedContent;
     bool busy, closing;
-    internal MainForm(Controller controller, bool initialize = true, Func<List<TrayEntry>>? visibilityScanner = null)
+    internal MainForm(Controller controller, bool initialize = true, Func<List<TrayEntry>>? visibilityScanner = null, StartupRegistration? startup = null, bool startInTray = false)
     {
         this.controller = controller;
+        this.startup = startup ?? new StartupRegistration();
         this.visibilityScanner = visibilityScanner ?? Scanner.Scan;
         L.Set(controller.Saved.Language); UiTheme.Set(controller.Saved.Theme);
         Text = "TrayPilot · 托盘图标管理"; Width = 1180; Height = 760; MinimumSize = new(1020, 620);
@@ -87,7 +89,7 @@ internal sealed partial class MainForm : Form
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnSystemThemeChanged;
         search.TextChanged += (_, _) => RenderList();
         timer.Tick += async (_, _) => await RefreshAsync();
-        Shown += async (_, _) => { if (initialize) { await RefreshAsync(); UpdateTimer(); } };
+        Shown += async (_, _) => { if (startInTray && trayIcon?.Visible == true) Hide(); if (initialize) { await RefreshAsync(); UpdateTimer(); } };
         FormClosing += (_, e) =>
         {
             if (closing) return;
