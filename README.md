@@ -124,6 +124,32 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 
 ## 从源码构建与诊断
 
+### GitHub Actions 自动构建
+
+推送代码或标签、创建或更新 Pull Request 时，`.github/workflows/build.yml` 会自动构建 Windows x64 程序；也可在 **Actions → Build Windows packages → Run workflow** 手动运行。
+
+构建成功后，在该次运行的 **Artifacts** 中下载 ZIP 包（保留 30 天）：
+
+- `TrayPilot-win-x64-full`：完整包，包含 .NET 运行时，无需另外安装。
+- `TrayPilot-win-x64-lite`：精简包，不包含 .NET 运行时，需要预先安装 **.NET 8 Windows Desktop Runtime x64**。
+
+两种包均包含 `TrayPilot.exe` 和 `languages/`，解压后直接运行根目录下的 EXE，并保留语言目录。
+
+### 自动发布 Release
+
+推送以 `v` 开头的标签（如 `v0.5.4`）后，同一工作流会在两种包均构建成功后自动创建 GitHub Release、生成更新说明，并上传 `TrayPilot-win-x64-full.zip` 和 `TrayPilot-win-x64-lite.zip`。Release 附件不受 Actions 构建产物的 30 天保留期限制。
+
+先提交并推送要发布的代码和工作流，再创建并推送标签：
+
+```powershell
+git tag v0.5.4
+git push origin v0.5.4
+```
+
+发布前请将 `source/TrayPilot.csproj` 中的 `Version` 更新为对应版本。含 `-` 的标签（如 `v0.5.5-beta.1`）会标记为预发布；重新运行会更新已有 Release 的同名附件，保留已有说明。普通分支推送、Pull Request 和手动构建不会发布 Release。
+
+### 本地构建
+
 在 Windows 上安装 .NET 8 SDK 或支持 `net8.0-windows` 的更新 SDK，在仓库根目录执行：
 
 ```powershell
