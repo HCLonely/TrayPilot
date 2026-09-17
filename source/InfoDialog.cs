@@ -2,22 +2,23 @@ namespace TrayPilot;
 
 internal static class InfoDialog
 {
-    internal static Form Create(string title, IEnumerable<KeyValuePair<string, string>> properties, Font font)
+    internal static Form Create(string title, IEnumerable<KeyValuePair<string, string>> properties, Font font, bool about = false)
     {
-        var dialog = new Form { Text = title, Size = new(820, 560), MinimumSize = new(600, 380),
-            StartPosition = FormStartPosition.CenterParent, Font = font, Padding = new(14) };
-        var info = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true,
+        var dialog = new Form { Text = title, Size = new(880, 600), MinimumSize = new(600, 380),
+            StartPosition = FormStartPosition.CenterParent, Font = font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
+        var info = new SmoothListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true,
             GridLines = true, ShowItemToolTips = true, LabelEdit = false, HideSelection = false };
+        UiTheme.StyleList(info);
         info.Columns.Add(L.T("项目"), 220); info.Columns.Add(L.T("信息"), 515);
         foreach (var property in properties)
         {
-            var row = new ListViewItem(property.Key) { ToolTipText = property.Key + ": " + property.Value };
+            var row = new ListViewItem(property.Key) { ToolTipText = property.Key + ": " + property.Value, BackColor = info.Items.Count % 2 == 0 ? Color.White : UiTheme.Stripe };
             row.SubItems.Add(property.Value); info.Items.Add(row);
         }
         info.Resize += (_, _) => info.Columns[1].Width = Math.Max(300, info.ClientSize.Width - info.Columns[0].Width - 24);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 46, FlowDirection = FlowDirection.RightToLeft, Padding = new(0, 8, 0, 0) };
-        var close = new Button { Text = L.T("关闭"), AutoSize = true, DialogResult = DialogResult.OK };
-        var copy = new Button { Text = L.T("复制信息"), AutoSize = true };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 56, FlowDirection = FlowDirection.RightToLeft, Padding = new(0, 16, 0, 0) };
+        var close = UiTheme.Button(L.T("关闭")); close.DialogResult = DialogResult.OK;
+        var copy = UiTheme.Button(L.T("复制信息"));
         copy.Click += (_, _) =>
         {
             var rows = info.SelectedItems.Count > 0 ? info.SelectedItems.Cast<ListViewItem>() : info.Items.Cast<ListViewItem>();
@@ -26,6 +27,10 @@ internal static class InfoDialog
         };
         buttons.Controls.Add(close); buttons.Controls.Add(copy);
         dialog.Controls.Add(info); dialog.Controls.Add(buttons); dialog.AcceptButton = close; dialog.CancelButton = close;
+        var spacing = new ImageList { ImageSize = new(1, 32) }; info.SmallImageList = spacing;
+        dialog.Disposed += (_, _) => spacing.Dispose();
+        dialog.Controls.Add(UiTheme.Heading(about ? "TrayPilot" : title,
+            about ? L.T("Windows 托盘图标管理工具，支持隐藏规则、快捷管理和多语言。") : L.T("选择属性行后可复制信息。"), font));
         return dialog;
     }
 }

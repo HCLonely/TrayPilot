@@ -23,6 +23,28 @@ internal static class UiTheme
         return button;
     }
 
+    internal static Panel Heading(string title, string subtitle, Font font)
+    {
+        var panel = new Panel { Dock = DockStyle.Top, Height = 92 };
+        panel.Controls.Add(new Label { Text = subtitle, Dock = DockStyle.Fill, ForeColor = Muted });
+        panel.Controls.Add(new Label { Text = title, Dock = DockStyle.Top, Height = 48, Font = new(font.FontFamily, 21, FontStyle.Bold), ForeColor = Ink });
+        return panel;
+    }
+
+    internal static void StyleList(ListView list)
+    {
+        list.BorderStyle = BorderStyle.None; list.BackColor = Color.White; list.ForeColor = Ink;
+        list.GridLines = false; list.OwnerDraw = true;
+        list.DrawColumnHeader += (_, e) =>
+        {
+            using var brush = new SolidBrush(Header); e.Graphics.FillRectangle(brush, e.Bounds);
+            TextRenderer.DrawText(e.Graphics, e.Header!.Text, list.Font, Rectangle.Inflate(e.Bounds, -10, 0), Muted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
+        list.DrawItem += (_, e) => { if (list.View != View.Details) e.DrawDefault = true; };
+        list.DrawSubItem += (_, e) => e.DrawDefault = true;
+    }
+
     internal static void Toggle(RadioButton button)
     {
         button.FlatStyle = FlatStyle.Flat; button.Padding = new(10, 5, 10, 5);

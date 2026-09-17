@@ -109,6 +109,9 @@
     "快捷管理菜单快捷键": "Quick controls hotkey",
     "打开主界面快捷键": "Open main window hotkey",
     "按 Ctrl 或 Alt 加其他键设置快捷键。隐藏本程序图标后，可再次运行程序打开主界面。": "Press Ctrl or Alt with another key. Run TrayPilot again to reopen the window when its tray icon is hidden.",
-    "搜索": "Search"
+    "搜索": "Search",
+    "暂无隐藏规则": "No hidden-icon rules",
+    "选择属性行后可复制信息。": "Select property rows to copy their information.",
+    "语言、托盘行为与键盘快捷键": "Language, tray behavior and keyboard shortcuts"
   }
 }

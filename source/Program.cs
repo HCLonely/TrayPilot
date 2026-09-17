@@ -5,7 +5,7 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         L.Set("zh-CN");
-        if (args.Length > 0) return Diagnostics.Run(args);
+        if (args.Length > 0) { Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException); return Diagnostics.Run(args); }
         try
         {
             var controller = new Controller(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"));

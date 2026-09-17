@@ -6,3 +6,4 @@
 /preview*.png
 /test-report*.txt
 /*.zip
+/integration-*.error.txt

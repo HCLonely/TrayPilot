@@ -181,7 +181,7 @@ internal sealed partial class MainForm
             [L.T("程序路径")] = Environment.ProcessPath ?? AppContext.BaseDirectory,
             [L.T("设置目录")] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"),
             [L.T("语言包目录")] = L.Folder
-        }, Font);
+        }, Font, about: true);
         timer.Stop();
         try { if (Visible) dialog.ShowDialog(this); else dialog.ShowDialog(); } finally { UpdateTimer(); }
     }
@@ -189,10 +189,11 @@ internal sealed partial class MainForm
     void ShowSettings()
     {
         trayMenu.Close();
-        using var dialog = new Form { Text = L.T("设置"), Size = new(740, 470), FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font };
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(18), ColumnCount = 2, RowCount = 8 };
-        panel.ColumnStyles.Add(new(SizeType.Absolute, 240)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
+        using var dialog = new Form { Text = L.T("设置"), Size = new(780, 610), FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), BackColor = Color.White, ColumnCount = 2, RowCount = 8 };
+        foreach (int height in new[] { 42, 38, 38, 46, 46, 68, 40, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
+        panel.ColumnStyles.Add(new(SizeType.Absolute, 280)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
         if (packs.Count == 0) packs["zh-CN"] = new L.Pack { Name = "简体中文" };
         var languages = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
@@ -219,17 +220,22 @@ internal sealed partial class MainForm
         var help = new Label { Text = L.T("按 Ctrl 或 Alt 加其他键设置快捷键。隐藏本程序图标后，可再次运行程序打开主界面。"), AutoSize = true, MaximumSize = new(440, 0) };
         var error = new Label { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(560, 0) };
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-        var save = new Button { Text = L.T("保存"), AutoSize = true };
-        var cancel = new Button { Text = L.T("取消"), AutoSize = true, DialogResult = DialogResult.Cancel };
+        var save = UiTheme.Button(L.T("保存"));
+        var cancel = UiTheme.Button(L.T("取消")); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save); buttons.Controls.Add(cancel);
         panel.Controls.Add(new Label { Text = L.T("语言"), AutoSize = true }, 0, 0); panel.Controls.Add(languages, 1, 0);
         panel.Controls.Add(closeToTray, 0, 1); panel.SetColumnSpan(closeToTray, 2);
-        panel.Controls.Add(enableHotkey, 0, 2); panel.Controls.Add(shortcut, 1, 2);
-        panel.Controls.Add(showTrayIcon, 0, 3); panel.SetColumnSpan(showTrayIcon, 2);
+        panel.Controls.Add(enableHotkey, 0, 3); panel.Controls.Add(shortcut, 1, 3);
+        panel.Controls.Add(showTrayIcon, 0, 2); panel.SetColumnSpan(showTrayIcon, 2);
         panel.Controls.Add(enableMainHotkey, 0, 4); panel.Controls.Add(mainShortcut, 1, 4);
         panel.Controls.Add(help, 1, 5); panel.Controls.Add(error, 0, 6); panel.SetColumnSpan(error, 2);
         panel.Controls.Add(buttons, 0, 7); panel.SetColumnSpan(buttons, 2);
-        dialog.Controls.Add(panel); dialog.CancelButton = cancel;
+        help.ForeColor = UiTheme.Muted;
+        shortcut.BackColor = mainShortcut.BackColor = UiTheme.Header;
+        shortcut.ForeColor = mainShortcut.ForeColor = UiTheme.Ink;
+        dialog.Controls.Add(panel);
+        dialog.Controls.Add(UiTheme.Heading(L.T("设置"), L.T("语言、托盘行为与键盘快捷键"), Font));
+        dialog.CancelButton = cancel;
         save.Click += (_, _) =>
         {
             hotkey ??= new GlobalHotkey(Handle);

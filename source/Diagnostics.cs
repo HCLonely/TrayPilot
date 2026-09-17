@@ -13,11 +13,12 @@ internal static class Diagnostics
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
-            if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en")
+            if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en")
             {
                 const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "preview-state");
                 var previewController = new Controller(folder); previewController.Saved.Language = "en-US";
+                if (args[0] == "--preview-rules-en") previewController.Saved.HiddenPaths.AddRange(Scanner.Scan().Select(x => x.Path).Distinct().Take(4));
                 using var form = new MainForm(previewController, initialize: false);
                 using var capture = new System.Windows.Forms.Timer { Interval = 500 };
                 capture.Tick += (_, _) =>
@@ -32,7 +33,7 @@ internal static class Diagnostics
                     capture.Start();
                     if (args[0] == "--preview-properties-en")
                         typeof(MainForm).GetMethod("ShowProperties", flags)!.Invoke(form, new object[] { Scanner.Scan().First() });
-                    else typeof(MainForm).GetMethod(args[0] == "--preview-settings-en" ? "ShowSettings" : "ShowAbout", flags)!.Invoke(form, null);
+                    else typeof(MainForm).GetMethod(args[0] == "--preview-settings-en" ? "ShowSettings" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowAbout", flags)!.Invoke(form, null);
                     form.RequestExit();
                 };
                 Application.Run(form); return 0;
@@ -153,7 +154,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.4 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.4.1 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -487,6 +488,21 @@ internal static class Diagnostics
         }
         typeof(MainForm).GetMethod("OpenMainWindow", flags)!.Invoke(form, null);
         check(form.Visible, "Open main window restores the hidden manager.");
+        using (var rulesDialog = form.CreateRulesDialog())
+        {
+            rulesDialog.Show(form); Application.DoEvents();
+            var rulesList = rulesDialog.Controls.OfType<ListView>().Single();
+            var rule = rulesList.Items.Cast<ListViewItem>().Single(x => (string)x.Tag! == own[0].Path);
+            check(rule.ImageIndex >= 0 && rulesList.SmallImageList!.Images.Count == rulesList.Items.Count && rule.SubItems[1].Text == own[0].Path,
+                "Hidden rules show application icons and paths.");
+            rule.Selected = true; rulesList.Focus(); Application.DoEvents();
+            var removeRule = rulesDialog.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("删除选中规则并恢复图标"));
+            removeRule.PerformClick();
+            check(!controller.HasRule(own[0].Path) && own.All(x => Native.State(x) == 0) && rulesList.Items.Count == 0,
+                "Deleting a selected icon rule restores its icons and updates the empty list.");
+            rulesDialog.Close();
+        }
+        controller.AddRule(own[0].Path); controller.Apply(own);
         form.RequestExit();
         check(form.IsDisposed && own.All(x => Native.State(x) == 0), "Explicit Exit bypasses close-to-tray and restores managed icons.");
         using var directExit = new MainForm(controller, initialize: false);

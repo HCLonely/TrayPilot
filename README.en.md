@@ -1,4 +1,4 @@
-# TrayPilot 0.4
+# TrayPilot 0.4.1
 
 Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installation is required. Keep the adjacent `app/languages` folder when moving or distributing the application.
 
@@ -7,6 +7,7 @@ Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installa
 - Double-click an application to show or hide its tray icons. Single-click selects it. Ctrl/Shift selects multiple items.
 - Switch between List and Grid. Hidden icons appear faded. Hover for details.
 - Right-click an application for Properties, Show/Hide icons, or End task. Properties use a non-editable table with a Copy information button. End task forcefully terminates only the selected process, after verifying its identity.
+- Hide rules display application icons, names and executable paths, including saved rules for applications that are not running. Missing executables use a fallback icon. Removing a rule restores its icons first.
 - Auto-refresh is enabled by default and can be turned off. Refresh keeps search text, selection and focus intact.
 
 ## System tray and exit

@@ -124,7 +124,7 @@ internal sealed partial class MainForm : Form
     }
     void AddButton(string text, Action handler)
     {
-        var button = UiTheme.Button(text, text == "隐藏选中");
+        var button = UiTheme.Button(text);
         button.Click += (_, _) => { if (!busy && !closing) handler(); }; actions.Controls.Add(button);
     }
     async Task RefreshAsync()
@@ -262,25 +262,60 @@ internal sealed partial class MainForm : Form
     }
     void EditRules()
     {
-        using var dialog = new Form { Text = L.T("隐藏规则（包含当前未运行的软件）"), Width = 770, Height = 390, StartPosition = FormStartPosition.CenterParent, Font = Font };
-        var rules = new ListBox { Dock = DockStyle.Fill, HorizontalScrollbar = true, SelectionMode = SelectionMode.MultiExtended };
-        rules.Items.AddRange(controller.Saved.HiddenPaths.Cast<object>().ToArray());
-        var remove = new Button { Text = L.T("删除选中规则并恢复图标"), Dock = DockStyle.Bottom, Height = 44 };
+        using var dialog = CreateRulesDialog();
+        timer.Stop();
+        try { dialog.ShowDialog(this); } finally { UpdateTimer(); }
+        _ = RefreshAsync();
+    }
+
+    internal Form CreateRulesDialog()
+    {
+        var dialog = new Form { Text = L.T("隐藏规则"), Size = new(880, 540), MinimumSize = new(700, 440),
+            StartPosition = FormStartPosition.CenterParent, Font = Font, BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink, Padding = new(24) };
+        var rules = new SmoothListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true,
+            HideSelection = false, ShowItemToolTips = true };
+        UiTheme.StyleList(rules);
+        rules.Columns.Add(L.T("软件名称"), 240); rules.Columns.Add(L.T("路径"), 550);
+        var images = new ImageList { ImageSize = new(32, 32), ColorDepth = ColorDepth.Depth32Bit };
+        // Materialize the image list before temporary bitmaps are disposed.
+        _ = images.Handle;
+        rules.SmallImageList = images;
+        dialog.Disposed += (_, _) => images.Dispose();
+        foreach (var path in controller.Saved.HiddenPaths)
+        {
+            var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase))
+                ?? new TrayEntry { Path = path, Name = System.IO.Path.GetFileNameWithoutExtension(path) };
+            using var icon = TrayImages.Create(entry with { State = 0 }, 32); images.Images.Add(icon);
+            var row = new ListViewItem(entry.Name) { Tag = path, ImageIndex = images.Images.Count - 1, ToolTipText = path,
+                BackColor = rules.Items.Count % 2 == 0 ? Color.White : UiTheme.Stripe };
+            row.SubItems.Add(path); rules.Items.Add(row);
+        }
+        rules.Resize += (_, _) => rules.Columns[1].Width = Math.Max(320, rules.ClientSize.Width - rules.Columns[0].Width - 24);
+        var empty = new Label { Text = L.T("暂无隐藏规则"), Dock = DockStyle.Bottom, Height = 40, ForeColor = UiTheme.Muted, Visible = rules.Items.Count == 0 };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 54, Padding = new(0, 16, 0, 0), FlowDirection = FlowDirection.RightToLeft };
+        var close = UiTheme.Button(L.T("关闭")); close.DialogResult = DialogResult.Cancel;
+        var remove = UiTheme.Button(L.T("删除选中规则并恢复图标")); remove.Enabled = false;
+        rules.SelectedIndexChanged += (_, _) => remove.Enabled = rules.SelectedItems.Count > 0;
         remove.Click += (_, _) =>
         {
             try
             {
-                foreach (var path in rules.SelectedItems.Cast<string>().ToList())
+                foreach (var row in rules.SelectedItems.Cast<ListViewItem>().ToList())
                 {
-                    controller.RemoveRule(path);
+                    var path = (string)row.Tag!;
+                    // Keep the rule available for retry if restoring an icon fails.
                     foreach (var entry in controller.Saved.Recovery.Where(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase)).ToList()) controller.Show(entry);
-                    rules.Items.Remove(path);
+                    controller.RemoveRule(path); rules.Items.Remove(row);
                 }
             }
-            catch (Exception ex) { MessageBox.Show(dialog, ex.Message); }
+            catch (Exception ex) { MessageBox.Show(dialog, ex.Message, L.T("操作未完成")); }
+            finally { empty.Visible = rules.Items.Count == 0; remove.Enabled = rules.SelectedItems.Count > 0; }
         };
-        dialog.Controls.Add(rules); dialog.Controls.Add(remove);
-        timer.Stop(); dialog.ShowDialog(this); UpdateTimer(); _ = RefreshAsync();
+        buttons.Controls.Add(close); buttons.Controls.Add(remove);
+        dialog.Controls.Add(rules); dialog.Controls.Add(empty); dialog.Controls.Add(buttons);
+        dialog.Controls.Add(UiTheme.Heading(L.T("隐藏规则"), L.T("隐藏规则（包含当前未运行的软件）"), Font));
+        dialog.CancelButton = close;
+        return dialog;
     }
     protected override void Dispose(bool disposing)
     {
