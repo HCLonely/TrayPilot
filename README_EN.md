@@ -13,6 +13,8 @@ A Windows 11 tray icon manager that hides unwanted icons while keeping their app
 
 Hidden icons disappear from both the taskbar and its overflow menu; the application keeps running. Restored icons return to the taskbar or overflow area according to Windows settings.
 
+![Example](./Example.gif?raw=true)
+
 ## Main window controls
 
 | Action | Result |
