@@ -20,6 +20,8 @@ public sealed record TrayEntry
 }
 internal static class Scanner
 {
+    internal static readonly Guid HardwareRemovalGuid = new("7820AE78-23E3-4229-82C1-E41CB67D5B9C");
+    internal static bool IsShellEntry(TrayEntry entry) => Controller.SamePath(entry.Path, System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"));
     static readonly Dictionary<string, string> Names = new(StringComparer.OrdinalIgnoreCase);
     internal static string ExpandPath(string path)
     {
@@ -47,7 +49,7 @@ internal static class Scanner
             Native.GetWindowThreadProcessId((nint)entry.Window, out pid);
         }
         if (pid != entry.Pid || !string.Equals(Native.ProcessPath(pid), entry.Path, StringComparison.OrdinalIgnoreCase)) return false;
-        try { using var p = Process.GetProcessById((int)pid); return p.StartTime.ToUniversalTime().Ticks == entry.Started; } catch { return false; }
+        return entry.Started > 0 && Native.ProcessStarted(pid) == entry.Started;
     }
     internal static List<TrayEntry> Scan()
     {
@@ -65,9 +67,7 @@ internal static class Scanner
             Native.GetWindowThreadProcessId(window, out var pid);
             if (!processes.TryGetValue(pid, out var info))
             {
-                long start = 0;
-                try { using var process = Process.GetProcessById((int)pid); start = process.StartTime.ToUniversalTime().Ticks; } catch { }
-                info = (Native.ProcessPath(pid), start); processes[pid] = info;
+                info = (Native.ProcessPath(pid), Native.ProcessStarted(pid)); processes[pid] = info;
             }
             if (info.Path.Length == 0 || info.Start == 0) continue;
             if (!owners.TryGetValue(info.Path, out var list)) owners[info.Path] = list = new();
@@ -81,16 +81,22 @@ internal static class Scanner
             using var key = root.OpenSubKey(subkey);
             if (key == null) continue;
             var path = ExpandPath(key.GetValue("ExecutablePath") as string ?? "");
-            // Shell-owned controls have different lifetime and callback semantics; exclude them.
-            if (string.Equals(System.IO.Path.GetFileName(path), "explorer.exe", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!owners.TryGetValue(path, out var list)) continue;
             Guid.TryParse(key.GetValue("IconGuid") as string, out var guid);
+            bool shell = IsShellEntry(new TrayEntry { Path = path });
+            // The removable-hardware icon is independently addressable. Keep other
+            // shell controls out of executable-wide actions and hide rules.
+            if (shell && guid != HardwareRemovalGuid) continue;
+            if (!owners.TryGetValue(path, out var list)) continue;
+            string tooltip = key.GetValue("InitialTooltip") as string ?? "";
+            string name = shell ? L.T("安全删除硬件并弹出媒体") :
+                System.IO.Path.GetFileName(path).Equals("NVDisplay.Container.exe", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(tooltip)
+                    ? tooltip : Name(path);
             var uidValue = key.GetValue("UID");
             if (guid == Guid.Empty && uidValue is not int) continue;
             var uid = uidValue is int v ? unchecked((uint)v) : 0;
-            foreach (var owner in list)
+            foreach (var owner in shell ? list.Where(x => Native.WindowClass(x.Window) == "SystemTray_Main") : list)
             {
-                var entry = new TrayEntry { Path = path, Name = Name(path), Tooltip = key.GetValue("InitialTooltip") as string ?? "",
+                var entry = new TrayEntry { Path = path, Name = name, Tooltip = tooltip,
                     Window = owner.Window, Pid = owner.Pid, Started = owner.Start, Id = uid, Guid = guid,
                     IconSnapshot = key.GetValue("IconSnapshot") as byte[] };
                 int state = Native.State(entry);

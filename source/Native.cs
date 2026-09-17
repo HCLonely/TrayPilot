@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 
 namespace TrayPilot;
-internal static class Native
+internal static partial class Native
 {
     [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(nint window, int attribute, ref int value, int size);
     [DllImport("user32.dll")] internal static extern bool DestroyIcon(nint icon);
@@ -26,6 +26,8 @@ internal static class Native
     [DllImport("user32.dll")] internal static extern bool EnumChildWindows(nint parent, EnumProc callback, nint param);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern nint FindWindowExW(nint parent, nint after, string? cls, string? name);
     [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint window, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetClassNameW(nint window, StringBuilder name, int size);
+    internal static string WindowClass(nint window) { var name = new StringBuilder(256); GetClassNameW(window, name, name.Capacity); return name.ToString(); }
     [DllImport("user32.dll")] internal static extern bool IsWindow(nint window);
     [DllImport("user32.dll")] internal static extern nint SendMessageW(nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool RegisterHotKey(nint window, int id, uint modifiers, uint key);
@@ -50,8 +52,8 @@ internal static class Native
     internal static string ProcessPath(uint pid)
     {
         var p = OpenProcess(0x1000, false, pid);
-        if (p == 0) return "";
-        try { var text = new StringBuilder(32768); uint length = 32768; return QueryFullProcessImageNameW(p, 0, text, ref length) ? text.ToString() : ""; }
+        if (p == 0) return SystemProcessPath(pid);
+        try { var text = new StringBuilder(32768); uint length = 32768; return QueryFullProcessImageNameW(p, 0, text, ref length) ? text.ToString() : SystemProcessPath(pid); }
         finally { CloseHandle(p); }
     }
 }

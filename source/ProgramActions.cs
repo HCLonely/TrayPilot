@@ -33,6 +33,7 @@ internal static class ProgramActions
 
     internal static Task EndAsync(TrayEntry entry) => Task.Run(() =>
     {
+        if (Scanner.IsShellEntry(entry)) throw new InvalidOperationException(L.T("系统托盘图标由资源管理器托管，不支持结束任务。"));
         if (entry.Pid == Environment.ProcessId) throw new InvalidOperationException(L.T("请通过退出菜单结束 TrayPilot，以便恢复隐藏图标。"));
         using var process = Process.GetProcessById(checked((int)entry.Pid));
         // Pin the process handle and verify its identity before terminating; never act on a reused PID.

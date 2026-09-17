@@ -126,6 +126,8 @@
     "添加到命中规则": "Add to matching rules",
     "已在命中规则": "Already in matching rules",
     "✓ 命中": "✓ Matched",
-    "暂时显示，执行“隐藏规则命中”后重新隐藏。": "Temporarily shown. Hide matching icons resumes hiding this application."
+    "暂时显示，执行“隐藏规则命中”后重新隐藏。": "Temporarily shown. Hide matching icons resumes hiding this application.",
+    "安全删除硬件并弹出媒体": "Safely Remove Hardware and Eject Media",
+    "系统托盘图标由资源管理器托管，不支持结束任务。": "This system tray icon is hosted by Windows Explorer and cannot be ended as a task."
   }
 }

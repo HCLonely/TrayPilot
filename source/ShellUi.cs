@@ -27,7 +27,13 @@ internal sealed partial class MainForm
         menuBar.Padding = new(24, 6, 24, 6); menuBar.RenderMode = ToolStripRenderMode.Professional;
         Controls.Add(menuBar); MainMenuStrip = menuBar;
         ApplyLanguage();
-        trayMenu.Opening += (_, _) => BuildTrayMenu();
+        trayMenu.Opening += (_, e) =>
+        {
+            BuildTrayMenu();
+            // An initially empty dropdown arrives with Cancel=true. Recompute it
+            // after populating, otherwise the very first right-click is discarded.
+            e.Cancel = trayMenu.Items.Count == 0;
+        };
         trayMenu.PageRequested += MoveTrayPage;
         if (initialize) InitializeTray();
     }
@@ -36,9 +42,10 @@ internal sealed partial class MainForm
     {
         if (trayIcon != null) return;
         _ = Handle;
-        trayIcon = new NotifyIcon { Icon = AppIcon.Create(), Text = "TrayPilot", ContextMenuStrip = trayMenu, Visible = controller.Saved.ShowTrayIcon };
+        trayIcon = new NotifyIcon { Icon = AppIcon.Create(), Text = "TrayPilot", ContextMenuStrip = trayMenu };
         trayIcon.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) { trayMenu.Close(); OpenMainWindow(); } };
         trayIcon.MouseDoubleClick += (_, e) => { if (e.Button == MouseButtons.Left) { trayMenu.Close(); OpenMainWindow(); } };
+        trayIcon.Visible = controller.Saved.ShowTrayIcon;
         RegisterShortcuts();
         UpdateStatus();
     }

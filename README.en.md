@@ -1,8 +1,10 @@
-# TrayPilot 0.5.2
+# TrayPilot 0.5.3
 
 Windows 11 tray icon manager. Run `app/TrayPilot.exe`; no separate .NET installation is required. Keep the adjacent `app/languages` folder when moving or distributing the application.
 
 Settings dropdowns have a visible border in light and dark themes, with an accent border when focused.
+
+NVIDIA Settings and the Safely Remove Hardware and Eject Media icon are supported. System-hosted hardware removal cannot be ended as a task. The tray menu opens on the first right-click, including immediately after startup.
 
 ## Controls
 

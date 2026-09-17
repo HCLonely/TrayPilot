@@ -20,6 +20,7 @@ internal static class Diagnostics
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
+            if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
             if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en")
             {
                 const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
@@ -135,6 +136,41 @@ internal static class Diagnostics
         if (!File.Exists(Path.Combine(folder, "ready"))) throw new Exception("Host did not become ready.");
         return p;
     }
+    static int TestSpecialIcons(string report)
+    {
+        var log = new List<string>();
+        var entries = Scanner.Scan().Where(x => x.Guid == Scanner.HardwareRemovalGuid ||
+            Path.GetFileName(x.Path).Equals("NVDisplay.Container.exe", StringComparison.OrdinalIgnoreCase)).ToList();
+        bool Wait(TrayEntry entry, int state)
+        {
+            for (int i = 0; i < 50; i++) { if (Native.State(entry) == state) return true; Thread.Sleep(40); }
+            return false;
+        }
+        foreach (var entry in entries)
+        {
+            int before = Native.State(entry);
+            try
+            {
+                if (!Scanner.SameOwner(entry)) throw new Exception("Owner verification failed: " + entry.Name);
+                log.Add("PASS: Discover and verify owner: " + entry.Name);
+                if (Scanner.SameOwner(entry with { Started = entry.Started + 1 })) throw new Exception("Stale identity accepted.");
+                log.Add("PASS: Reject stale process identity: " + entry.Name);
+                if (!Native.SetHidden(entry, before == 0) || !Wait(entry, before == 0 ? 1 : 0))
+                    throw new Exception("Visibility change failed: " + entry.Name);
+                log.Add("PASS: Toggle visibility: " + entry.Name);
+            }
+            finally
+            {
+                Native.SetHidden(entry, before == 1);
+                if (!Wait(entry, before)) throw new Exception("Restoration failed: " + entry.Name);
+            }
+            log.Add("PASS: Restore original visibility: " + entry.Name);
+        }
+        if (!entries.Any(x => x.Guid == Scanner.HardwareRemovalGuid) || !entries.Any(x => !Scanner.IsShellEntry(x)))
+            throw new Exception("Both requested icons must be present for this machine-specific verification.");
+        File.WriteAllLines(report, log); return 0;
+    }
+
     static int Test(string report)
     {
         var log = new List<string>();
@@ -145,6 +181,10 @@ internal static class Diagnostics
         void Check(bool condition, string text) { if (!condition) throw new Exception("FAIL: " + text); log.Add("PASS: " + text); File.WriteAllLines(report, log); }
         try
         {
+            Check(Controller.SamePath(Native.SystemProcessPath((uint)Environment.ProcessId), Environment.ProcessPath!), "System process path fallback agrees with the current executable.");
+            Check(Native.SystemProcessStarted((uint)Environment.ProcessId) == Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks,
+                "System process creation time fallback preserves exact identity.");
+            Check(Native.SystemProcessPath(uint.MaxValue) == "" && Native.SystemProcessStarted(uint.MaxValue) == 0, "Process fallback rejects nonexistent PIDs.");
             host = StartHost(folder); Thread.Sleep(500);
             var own = Scanner.Scan().Where(x => x.Pid == host.Id).ToList();
             Check(own.Count == 2, "Automatically discover both UID and GUID icons belonging to a separate process (message-only window).");
@@ -175,7 +215,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.2 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.3 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -464,6 +504,18 @@ internal static class Diagnostics
         typeof(MainForm).GetMethod("InitializeTray", flags)!.Invoke(form, null);
         var tray = (NotifyIcon)typeof(MainForm).GetField("trayIcon", flags)!.GetValue(form)!;
         var menu = (ContextMenuStrip)typeof(MainForm).GetField("trayMenu", flags)!.GetValue(form)!;
+        var trayWindow = (NativeWindow)typeof(NotifyIcon).GetField("_window", flags)!.GetValue(tray)!;
+        form.Hide();
+        Native.SendMessageW(trayWindow.Handle, 0x0800, 0, 0x0201);
+        Native.SendMessageW(trayWindow.Handle, 0x0800, 0, 0x0202);
+        check(form.Visible, "The first native left tray click opens the hidden main window.");
+        form.Hide();
+        check(menu.Items.Count == 0, "Cold-start tray menu has not been built before the first click.");
+        Native.SendMessageW(trayWindow.Handle, 0x0800, 0, 0x0205);
+        Application.DoEvents();
+        check(menu.Visible && menu.Items.Count > 0, "The first native right tray click populates and opens the menu.");
+        menu.Items[0].PerformClick(); Application.DoEvents();
+        check(form.Visible, "The first tray menu opens the main window on its first action click.");
         void BuildMenu() => typeof(MainForm).GetMethod("BuildTrayMenu", flags)!.Invoke(form, null);
         ToolStripMenuItem AppRow()
         {

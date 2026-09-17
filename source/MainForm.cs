@@ -214,7 +214,7 @@ internal sealed partial class MainForm : Form
         });
         rule.Enabled = !busy && !controller.HasRule(entry.Path) && state is 0 or 1;
         var end = itemMenu.Items.Add(L.T("结束任务"), null, async (_, _) => { itemMenu.Close(); await EndTaskAsync(entry); });
-        end.Enabled = !busy && state is 0 or 1 && entry.Pid != Environment.ProcessId;
+        end.Enabled = !busy && state is 0 or 1 && entry.Pid != Environment.ProcessId && !Scanner.IsShellEntry(entry);
         UiTheme.Apply(itemMenu); itemMenu.Show(list, location);
     }
 
