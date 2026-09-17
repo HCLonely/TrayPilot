@@ -488,6 +488,20 @@ internal static class Diagnostics
         ruleDeadline = DateTime.UtcNow.AddSeconds(60);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         check(!controller.IsTemporarilyShown(own[0].Path) && own.All(x => Native.State(x) == 1), "Hide matching button clears temporary overrides and reapplies saved rules.");
+        var savedRules = controller.Saved.HiddenPaths.ToList();
+        commands.Controls.OfType<Button>().Single(x => x.Text == L.T("restoreAll")).PerformClick();
+        ruleDeadline = DateTime.UtcNow.AddSeconds(60);
+        while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        controller.Apply(own);
+        check(controller.Saved.HiddenPaths.SequenceEqual(savedRules) && controller.IsTemporarilyShown(own[0].Path) && own.All(x => Native.State(x) == 0),
+            "Restore all retains matching rules and restored icons stay visible after automatic refresh.");
+        check(list.Items.Cast<TrayListItem>().All(x => x.MatchesRule && x.SubItems[2].Text == L.T("ruleMatchIndicator")),
+            "Restore all preserves matching-rule markers in the list.");
+        typeof(MainForm).GetMethod("ChangePaths", flags)!.Invoke(form, new object[] { new[] { own[0].Path }, true });
+        check(controller.Saved.HiddenPaths.SequenceEqual(savedRules) && own.All(x => Native.State(x) == 1), "Manual hiding retains matching rules.");
+        typeof(MainForm).GetMethod("ChangePaths", flags)!.Invoke(form, new object[] { new[] { own[0].Path }, false });
+        controller.Apply(own);
+        check(controller.Saved.HiddenPaths.SequenceEqual(savedRules) && own.All(x => Native.State(x) == 0), "Individual restoration retains matching rules.");
         controller.RemoveRule(own[0].Path); foreach (var entry in own) controller.Show(entry);
         autoRefresh.Checked = true;
         check(refreshTimer.Enabled, "Automatic refresh can be enabled again.");

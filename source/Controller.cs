@@ -63,12 +63,6 @@ internal sealed class Controller
         try { Save(); } catch { Saved.HiddenPaths = previous; throw; }
         manuallyShown.Remove(NormalizePath(path));
     }
-    internal void ClearRules()
-    {
-        var previous = Saved.HiddenPaths.ToList(); Saved.HiddenPaths.Clear();
-        try { Save(); } catch { Saved.HiddenPaths = previous; throw; }
-        manuallyShown.Clear();
-    }
     internal void Hide(TrayEntry entry)
     {
         if (!Scanner.SameOwner(entry)) return;
@@ -109,11 +103,16 @@ internal sealed class Controller
         for (int i = 0; i < 20; i++) { if (Native.State(entry) == state) return true; Thread.Sleep(40); }
         return Native.State(entry) == state;
     }
-    internal void RestoreManaged()
+    internal void RestoreManaged(bool temporarilyShow = false)
     {
         var errors = new List<string>();
         foreach (var entry in Saved.Recovery.ToList())
-            try { Show(entry); } catch (Exception e) { errors.Add(e.Message); }
+            try
+            {
+                Show(entry);
+                if (temporarilyShow) SetManualVisibility(entry.Path, hidden: false);
+            }
+            catch (Exception e) { errors.Add(e.Message); }
         if (errors.Count > 0) throw new IOException(string.Join(Environment.NewLine, errors));
     }
 }

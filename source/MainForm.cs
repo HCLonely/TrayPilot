@@ -48,7 +48,7 @@ internal sealed partial class MainForm : Form
         searchRow.Controls.Add(autoRefresh, 2, 0); layout.Controls.Add(searchRow, 0, 2);
         AddButton("hideSelected", () => ChangeSelected(true)); AddButton("restoreSelected", () => ChangeSelected(false));
         var hideRules = UiTheme.Button("hideMatchingIcons"); hideRules.Click += async (_, _) => await ApplyVisibilityPresetAsync(true); actions.Controls.Add(hideRules);
-        AddButton("restoreAll", () => RunAction(() => { controller.RestoreManaged(); controller.ClearRules(); }));
+        AddButton("restoreAll", () => RunAction(() => controller.RestoreManaged(temporarilyShow: true)));
         var commandRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         commandRow.ColumnStyles.Add(new(SizeType.Percent, 100)); commandRow.ColumnStyles.Add(new(SizeType.AutoSize));
         actions.Margin = Padding.Empty; commandRow.Controls.Add(actions, 0, 0);

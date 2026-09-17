@@ -41,10 +41,10 @@ Rules match full executable paths, ignoring case and path-separator differences.
 | Manually hide / restore | Keep rule membership unchanged; restoring a matched application temporarily excludes its path from automatic hiding for this session |
 | Hide matching icons | Hide matching icons, clear temporary exceptions and resume automatic hiding |
 | Show all icons (hotkey) | Show detected hidden icons and TrayPilot's own icon, retain rules and pause automatic hiding |
-| Restore all (main window button) | Restore icons hidden by TrayPilot, then clear all hide rules after successful restoration |
+| Restore all (main window button) | Restore icons hidden by TrayPilot, retaining all rules and temporarily skipping automatic hiding for restored paths during this session |
 | Exit | Restore icons hidden by TrayPilot and quit, retaining rules for the next launch |
 
-**Show all icons retains rules; Restore all clears them.** The automatic-hiding pause state survives restarts. Temporary exceptions from manual restoration do not survive a restart and are also cleared by **Hide matching icons**.
+**Restore all, individual restoration and manual hiding never add or remove matching rules.** The automatic-hiding pause state survives restarts. Temporary exceptions from manual restoration (including Restore all) do not survive a restart and are also cleared by **Hide matching icons**.
 
 Open **Hide rules** from the top menu to view saved rules, including applications that are not running. Entries show an icon, name and full path, and support multiple deletion. Removing a rule restores its icons first; failed restoration retains the rule for retry. Missing executables use a fallback icon.
 
