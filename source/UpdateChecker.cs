@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 
 namespace TrayPilot;
@@ -8,7 +9,8 @@ internal static class UpdateChecker
 {
     internal const string ProjectUrl = "https://github.com/HCLonely/TrayPilot";
     internal static Version CurrentVersion => typeof(UpdateChecker).Assembly.GetName().Version ?? new Version(0, 0, 0);
-    internal static string CurrentVersionText => CurrentVersion.ToString(3);
+    internal static string CurrentVersionText => typeof(UpdateChecker).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? CurrentVersion.ToString(3);
     static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(15) };
 
     internal sealed record Release(Version Version, string Tag)

@@ -2,7 +2,7 @@
 
 Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件继续运行。
 
-**当前版本：0.5.4** · 简体中文 | [English](README_EN.md)
+简体中文 | [English](README_EN.md)
 
 ## 快速开始
 
@@ -10,8 +10,6 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 2. 双击 `app/TrayPilot.exe` 打开主界面。Windows x64 自包含版本无需另外安装 .NET，也不需要 Windhawk。
 3. 双击软件图标或所在行，切换显示 / 隐藏；需要持续自动隐藏时，右键选择 **添加到命中规则**。
 4. 默认关闭窗口后继续在托盘运行。需要结束程序时，选择 **退出**，程序会先恢复本工具隐藏的图标。
-
-移动或分发程序时，请保留 EXE 同目录下的 `languages` 文件夹。`app/` 是本地发布输出目录，不随源码提交。
 
 “隐藏”表示图标从任务栏及折叠菜单中完全隐藏，不会关闭目标软件；恢复显示后，图标按 Windows 原有设置回到任务栏或折叠菜单。
 
@@ -123,30 +121,6 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 - 无托盘记录、路径匹配失败、受保护进程或特殊实现可能无法识别或控制。
 
 ## 从源码构建与诊断
-
-### GitHub Actions 自动构建
-
-推送代码或标签、创建或更新 Pull Request 时，`.github/workflows/build.yml` 会自动构建 Windows x64 程序；也可在 **Actions → Build Windows packages → Run workflow** 手动运行。
-
-构建成功后，在该次运行的 **Artifacts** 中下载 ZIP 包（保留 30 天）：
-
-- `TrayPilot-win-x64-full`：完整包，包含 .NET 运行时，无需另外安装。
-- `TrayPilot-win-x64-lite`：精简包，不包含 .NET 运行时，需要预先安装 **.NET 8 Windows Desktop Runtime x64**。
-
-两种包均包含 `TrayPilot.exe` 和 `languages/`，解压后直接运行根目录下的 EXE，并保留语言目录。
-
-### 自动发布 Release
-
-推送以 `v` 开头的标签（如 `v0.5.4`）后，同一工作流会在两种包均构建成功后自动创建 GitHub Release、生成更新说明，并上传 `TrayPilot-win-x64-full.zip` 和 `TrayPilot-win-x64-lite.zip`。Release 附件不受 Actions 构建产物的 30 天保留期限制。
-
-先提交并推送要发布的代码和工作流，再创建并推送标签：
-
-```powershell
-git tag v0.5.4
-git push origin v0.5.4
-```
-
-发布前请将 `source/TrayPilot.csproj` 中的 `Version` 更新为对应版本。含 `-` 的标签（如 `v0.5.5-beta.1`）会标记为预发布；重新运行会更新已有 Release 的同名附件，保留已有说明。普通分支推送、Pull Request 和手动构建不会发布 Release。
 
 ### 本地构建
 

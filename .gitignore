@@ -1,9 +1,13 @@
 /app/
 /source/bin/
 /source/obj/
+/tests/**/bin/
+/tests/**/obj/
 /integration-*/
 /preview-state/
 /preview*.png
 /test-report*.txt
 /*.zip
 /integration-*.error.txt
+
+tests/

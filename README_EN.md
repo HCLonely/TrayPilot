@@ -2,7 +2,7 @@
 
 A Windows 11 tray icon manager that hides unwanted icons while keeping their applications running.
 
-**Current version: 0.5.4** · [简体中文](README.md) | English
+[简体中文](README.md) | English
 
 ## Quick start
 
@@ -10,8 +10,6 @@ A Windows 11 tray icon manager that hides unwanted icons while keeping their app
 2. Run `app/TrayPilot.exe` to open the main window. The self-contained Windows x64 build requires no separate .NET installation or Windhawk.
 3. Double-click an application icon or row to show or hide its icons. For persistent automatic hiding, right-click and choose **Add to matching rules**.
 4. Closing the window keeps TrayPilot running in the tray by default. Choose **Exit** to restore icons hidden by TrayPilot and quit.
-
-Keep the `languages` folder next to the executable when moving or distributing it. `app/` is a local publish output directory and is not committed with the source.
 
 Hidden icons disappear from both the taskbar and its overflow menu; the application keeps running. Restored icons return to the taskbar or overflow area according to Windows settings.
 
@@ -123,30 +121,6 @@ This project is a prototype targeting **Windows 11 25H2**. Other Windows version
 - Missing tray records, unmatched paths, protected processes and special implementations may prevent discovery or control.
 
 ## Build and diagnostics
-
-### Automated builds with GitHub Actions
-
-`.github/workflows/build.yml` builds Windows x64 packages on pushes (including tags) and pull requests. You can also start it manually via **Actions → Build Windows packages → Run workflow**.
-
-After a successful run, download the ZIP packages from its **Artifacts** section (retained for 30 days):
-
-- `TrayPilot-win-x64-full`: includes the .NET runtime; no separate runtime installation is required.
-- `TrayPilot-win-x64-lite`: excludes the .NET runtime; requires **.NET 8 Windows Desktop Runtime x64** to be installed.
-
-Both packages contain `TrayPilot.exe` and `languages/`. Extract the package and run the EXE at its root, keeping the language folder alongside it.
-
-### Automatic GitHub Releases
-
-Push a tag starting with `v` (for example, `v0.5.4`) to create a GitHub Release after both packages build successfully. The same workflow generates release notes and attaches `TrayPilot-win-x64-full.zip` and `TrayPilot-win-x64-lite.zip`. Release assets are not subject to the 30-day Actions artifact retention period.
-
-Commit and push the release code and workflow first, then create and push the tag:
-
-```powershell
-git tag v0.5.4
-git push origin v0.5.4
-```
-
-Update `Version` in `source/TrayPilot.csproj` to match the intended version before tagging. Tags containing `-` (such as `v0.5.5-beta.1`) are marked as prereleases. Rerunning the workflow replaces assets with the same names on an existing Release while keeping its notes. Branch pushes, pull requests and manual builds do not publish Releases.
 
 ### Local build
 

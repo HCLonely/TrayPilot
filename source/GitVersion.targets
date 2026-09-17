@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+  <Target Name="GenerateGitVersion" BeforeTargets="GetAssemblyVersion;GenerateNuspec">
+    <Exec Command="git rev-parse --short=12 HEAD" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" StandardOutputImportance="Low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitCommit" />
+    </Exec>
+    <Exec Command="git tag --points-at HEAD --sort=-version:refname" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" StandardOutputImportance="Low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_GitTags" />
+    </Exec>
+    <ItemGroup>
+      <_VersionTags Include="@(_GitTags)" Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '^[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'))" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_TagList>@(_VersionTags)</_TagList>
+      <_VersionTag>$(_TagList.Split(';')[0])</_VersionTag>
+      <Version Condition="'$(_VersionTag)' != ''">$([System.Text.RegularExpressions.Regex]::Replace('$(_VersionTag)', '^[vV]', ''))</Version>
+      <Version Condition="'$(_VersionTag)' == ''">0.0.0-git.$(_GitCommit)</Version>
+      <AssemblyVersion>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^[0-9]+\.[0-9]+\.[0-9]+').Value).0</AssemblyVersion>
+      <FileVersion>$(AssemblyVersion)</FileVersion>
+      <InformationalVersion>$(Version)</InformationalVersion>
+    </PropertyGroup>
+    <Message Importance="High" Text="TrayPilot version: $(InformationalVersion)" />
+  </Target>
+</Project>

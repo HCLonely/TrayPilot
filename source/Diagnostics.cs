@@ -303,7 +303,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.4 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add($"TrayPilot {UpdateChecker.CurrentVersionText} integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
