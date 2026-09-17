@@ -2,7 +2,7 @@ namespace TrayPilot;
 
 internal static class InfoDialog
 {
-    internal static Form Create(string title, IEnumerable<KeyValuePair<string, string>> properties, Font font, bool about = false)
+    internal static Form Create(string title, IEnumerable<KeyValuePair<string, string>> properties, Font font, bool about = false, string? projectUrl = null)
     {
         var dialog = new Form { Text = title, Size = new(880, 600), MinimumSize = new(600, 380),
             StartPosition = FormStartPosition.CenterParent, Font = font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
@@ -26,6 +26,17 @@ internal static class InfoDialog
             catch (System.Runtime.InteropServices.ExternalException) { MessageBox.Show(dialog, L.T("clipboardUnavailableMessage")); }
         };
         buttons.Controls.Add(close); buttons.Controls.Add(copy);
+        if (projectUrl != null)
+        {
+            var project = UiTheme.Button(L.T("openProject"));
+            project.Click += (_, _) =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(projectUrl) { UseShellExecute = true }); }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+                { MessageBox.Show(dialog, L.T("openProjectFailed") + "\n" + ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            };
+            buttons.Controls.Add(project);
+        }
         dialog.Controls.Add(info); dialog.Controls.Add(buttons); dialog.AcceptButton = close; dialog.CancelButton = close;
         var spacing = new ImageList { ImageSize = new(1, 32) }; info.SmallImageList = spacing;
         dialog.Disposed += (_, _) => spacing.Dispose();

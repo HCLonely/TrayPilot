@@ -187,16 +187,20 @@ internal sealed partial class MainForm
     void ShowAbout()
     {
         trayMenu.Close();
+        const string projectUrl = "https://github.com/HCLonely/TrayPilot";
         var version = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
         using var dialog = InfoDialog.Create(L.T("about") + " TrayPilot", new Dictionary<string, string>
         {
             [L.T("applicationName")] = "TrayPilot", [L.T("version")] = version,
             [L.T("description")] = L.T("applicationDescription"),
+            [L.T("author")] = "HCLonely",
+            [L.T("copyright")] = "Copyright © 2026 HCLonely",
+            [L.T("projectUrl")] = projectUrl,
             [L.T("operatingSystem")] = Environment.OSVersion.VersionString,
             [L.T("applicationPath")] = Environment.ProcessPath ?? AppContext.BaseDirectory,
             [L.T("settingsFolder")] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"),
             [L.T("languagePackFolder")] = L.Folder
-        }, Font, about: true);
+        }, Font, about: true, projectUrl: projectUrl);
         timer.Stop();
         try { if (Visible) dialog.ShowDialog(this); else dialog.ShowDialog(); } finally { UpdateTimer(); }
     }
