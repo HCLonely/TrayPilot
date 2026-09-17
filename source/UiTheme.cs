@@ -182,6 +182,19 @@ internal sealed class ThemeMenuRenderer : ToolStripProfessionalRenderer
 internal sealed class ThemeComboBox : ComboBox
 {
     internal ThemeComboBox() { DrawMode = DrawMode.OwnerDrawFixed; FlatStyle = FlatStyle.Flat; }
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+    protected override void WndProc(ref Message message)
+    {
+        base.WndProc(ref message);
+        if (!IsHandleCreated || IsDisposed || Width < 2 || Height < 2) return;
+        if (message.Msg != 0x000F && message.Msg != 0x0317 && message.Msg != 0x0318) return;
+        using var graphics = message.Msg == 0x000F ? Graphics.FromHwnd(Handle)
+            : message.WParam != 0 ? Graphics.FromHdc(message.WParam) : null;
+        if (graphics == null) return;
+        using var pen = new Pen(Focused ? UiTheme.Accent : UiTheme.Border);
+        graphics.DrawRectangle(pen, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+    }
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         bool selected = (e.State & DrawItemState.Selected) != 0;

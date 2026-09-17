@@ -175,7 +175,7 @@ internal static class Diagnostics
             Check(restarted.All(x => Native.State(x) == 1), "Existing path rule hides restarted application icons.");
             recovery.RemoveRule(restarted[0].Path); recovery.RestoreManaged();
             Check(restarted.All(x => Native.State(x) == 0), "Removing rule and restoring works after restart.");
-            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.1 integration tests complete.");
+            log.Add("OS: " + Environment.OSVersion.Version); log.Add("TrayPilot v0.5.2 integration tests complete.");
             return 0;
         }
         catch (Exception ex) { log.Add(ex.ToString()); return 1; }
@@ -267,7 +267,14 @@ internal static class Diagnostics
             bool selectedBefore = hovered.Selected; hovered.Selected = true;
             var next = list.Items.Cast<ListViewItem>().First(x => x != hovered); next.EnsureVisible(); Application.DoEvents();
             var nextBounds = next.Bounds;
+            var invalidated = new List<Rectangle>();
+            InvalidateEventHandler trackInvalidation = (_, e) => invalidated.Add(e.InvalidRect);
+            list.Invalidated += trackInvalidation;
             typeof(Control).GetMethod("OnMouseMove", flags)!.Invoke(list, new object[] { new MouseEventArgs(MouseButtons.None, 0, nextBounds.Left + 10, nextBounds.Top + 10, 0) });
+            list.Invalidated -= trackInvalidation;
+            check(invalidated.Count == 2 && invalidated.All(x => x.Height < list.ClientSize.Height && (!grid || x.Width < list.ClientSize.Width)),
+                "Hover changes invalidate only the previous and next item, not the viewport.");
+            list.Update(); // Exercise buffered WM_PAINT, as well as WM_PRINT below.
             using (var moved = new Bitmap(list.Width, list.Height))
             {
                 list.DrawToBitmap(moved, list.ClientRectangle);

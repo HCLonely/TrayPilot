@@ -1,10 +1,31 @@
+using System.Runtime.InteropServices;
+
 namespace TrayPilot;
 
 internal sealed class TrayListView : ListView
 {
     ListViewItem? hovered;
     internal ListViewItem? HoveredItem => hovered;
-    internal void ClearHover() { hovered = null; Invalidate(); }
+    internal void ClearHover() => SetHover(null);
+    void InvalidateItem(ListViewItem? item)
+    {
+        if (item?.ListView != this) return;
+        var bounds = View == View.LargeIcon ? Rectangle.Inflate(Cell(item), 1, 1)
+            : new Rectangle(0, item.Bounds.Top, ClientSize.Width, item.Bounds.Height);
+        Invalidate(bounds);
+    }
+    void SetHover(ListViewItem? item)
+    {
+        if (item == hovered) return;
+        var previous = hovered; hovered = item;
+        InvalidateItem(previous); InvalidateItem(item);
+    }
+    protected override void OnItemSelectionChanged(ListViewItemSelectionChangedEventArgs e)
+    {
+        base.OnItemSelectionChanged(e); InvalidateItem(e.Item);
+    }
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); InvalidateItem(FocusedItem); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); InvalidateItem(FocusedItem); }
     internal TrayListView() { DoubleBuffered = true; OwnerDraw = true; }
     internal ListViewItem? ItemAt(Point point) => !ClientRectangle.Contains(point) ? null : View == View.LargeIcon
         ? Items.Cast<ListViewItem>().FirstOrDefault(x => Cell(x).Contains(point))
@@ -12,11 +33,9 @@ internal sealed class TrayListView : ListView
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var item = ItemAt(e.Location);
-        if (item == hovered) return;
-        hovered = item; Invalidate();
+        SetHover(ItemAt(e.Location));
     }
-    protected override void OnMouseLeave(EventArgs e) { hovered = null; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseLeave(EventArgs e) { ClearHover(); base.OnMouseLeave(e); }
     protected override void OnDrawColumnHeader(DrawListViewColumnHeaderEventArgs e)
     {
         using var fill = new SolidBrush(UiTheme.Header); e.Graphics.FillRectangle(fill, e.Bounds);
@@ -39,11 +58,13 @@ internal sealed class TrayListView : ListView
     }
     void DrawGrid(Graphics graphics)
     {
-        graphics.SetClip(ClientRectangle); graphics.Clear(UiTheme.Surface);
+        graphics.IntersectClip(ClientRectangle);
+        using var background = new SolidBrush(UiTheme.Surface);
+        graphics.FillRectangle(background, ClientRectangle);
         foreach (ListViewItem item in Items)
         {
             var bounds = Cell(item);
-            if (!bounds.IntersectsWith(ClientRectangle)) continue;
+            if (!bounds.IntersectsWith(ClientRectangle) || !graphics.IsVisible(Rectangle.Inflate(bounds, 1, 1))) continue;
             using var fill = new SolidBrush(Background(item)); using var border = new Pen(item == hovered ? UiTheme.Highlight : item.Selected ? UiTheme.Header : UiTheme.Border);
             graphics.FillRectangle(fill, bounds); graphics.DrawRectangle(border, bounds);
             if (LargeImageList != null && item.ImageIndex >= 0 && item.ImageIndex < LargeImageList.Images.Count)
@@ -64,20 +85,49 @@ internal sealed class TrayListView : ListView
             if (item.Focused && Focused) ControlPaint.DrawFocusRectangle(graphics, Rectangle.Inflate(bounds, -2, -2), Foreground(item), Background(item));
         }
     }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PaintState
+    {
+        public nint Hdc;
+        public int Erase, Left, Top, Right, Bottom, Restore, IncUpdate;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] Reserved;
+    }
+    [DllImport("user32.dll")] static extern nint BeginPaint(nint window, out PaintState state);
+    [DllImport("user32.dll")] static extern bool EndPaint(nint window, ref PaintState state);
     protected override void WndProc(ref Message message)
     {
+        if (View == View.LargeIcon && message.Msg == 0x0014)
+        {
+            // The buffered paint includes the background; never expose an erased frame.
+            message.Result = 1; return;
+        }
+        if (View == View.LargeIcon && message.Msg == 0x000F && IsHandleCreated)
+        {
+            var hdc = BeginPaint(Handle, out var paint);
+            try
+            {
+                var dirty = Rectangle.FromLTRB(paint.Left, paint.Top, paint.Right, paint.Bottom);
+                if (hdc != 0 && dirty.Width > 0 && dirty.Height > 0)
+                {
+                    using var target = Graphics.FromHdc(hdc);
+                    // Keep the buffer origin at (0, 0) for GDI text and image-list drawing.
+                    // BeginPaint clips the final blit to the actual invalid region.
+                    using var buffer = BufferedGraphicsManager.Current.Allocate(target, ClientRectangle);
+                    buffer.Graphics.SetClip(dirty);
+                    DrawGrid(buffer.Graphics);
+                    buffer.Render(target);
+                }
+            }
+            finally { EndPaint(Handle, ref paint); }
+            message.Result = 0; return;
+        }
         base.WndProc(ref message);
         if (!IsHandleCreated || IsDisposed) return;
         if (message.Msg is 0x0114 or 0x0115 or 0x020A)
         {
             hovered = ItemAt(PointToClient(Cursor.Position)); Invalidate();
         }
-        if (View != View.LargeIcon) return;
-        if (message.Msg == 0x000F)
-        {
-            using var graphics = Graphics.FromHwnd(Handle); DrawGrid(graphics);
-        }
-        else if (message.Msg is 0x0317 or 0x0318 && message.WParam != 0)
+        if (View == View.LargeIcon && message.Msg is 0x0317 or 0x0318 && message.WParam != 0)
         {
             using var graphics = Graphics.FromHdc(message.WParam); DrawGrid(graphics);
         }
