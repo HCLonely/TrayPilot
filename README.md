@@ -1,92 +1,94 @@
 # TrayPilot
 
-Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件继续运行。
+A Windows 11 tray icon manager that hides unwanted icons while keeping their applications running.
 
-简体中文 | [English](README_EN.md)
+[简体中文](README_CN.md) | English
 
-## 快速开始
+## Quick start
 
-1. 使用已发布的程序包，或按下文从源码构建。
-2. 双击 `app/TrayPilot.exe` 打开主界面。Windows x64 自包含版本无需另外安装 .NET，也不需要 Windhawk。
-3. 双击软件图标或所在行，切换显示 / 隐藏；需要持续自动隐藏时，右键选择 **添加到命中规则**。
-4. 默认关闭窗口后继续在托盘运行。需要结束程序时，选择 **退出**，程序会先恢复本工具隐藏的图标。
+1. Use a published application package, or build from source as described below.
+2. Run `app/TrayPilot.exe` to open the main window. The self-contained Windows x64 build requires no separate .NET installation or Windhawk.
+3. Double-click an icon or row to toggle only that icon. For persistent hiding, right-click and choose **Auto-hide only this icon**. **All icons for this application** provides application-wide controls.
+4. Closing the window keeps TrayPilot running in the tray by default. Choose **Exit** to restore icons hidden by TrayPilot and quit.
 
-“隐藏”表示图标从任务栏及折叠菜单中完全隐藏，不会关闭目标软件；恢复显示后，图标按 Windows 原有设置回到任务栏或折叠菜单。
+Hidden icons disappear from both the taskbar and its overflow menu; the application keeps running. Restored icons return to the taskbar or overflow area according to Windows settings.
 
 ![Example](./Example.gif?raw=true)
 
-## 主界面操作
+## Main window controls
 
-| 操作 | 效果 |
+| Action | Result |
 | --- | --- |
-| 单击 | 选择项目，不改变图标状态 |
-| 左键双击 | 切换同一 EXE 路径下所有实例的托盘图标状态 |
-| Ctrl / Shift 点击 | 多选，然后使用 **隐藏选中** / **恢复选中** |
-| 右键 | 打开属性、显示 / 隐藏、添加规则及结束任务菜单 |
-| 鼠标悬停 | 查看状态、规则、缓存提示、进程、PID、完整路径及图标标识 |
-| 搜索 | 按软件名称、进程或路径过滤 |
-| 列表 / 网格 | 切换布局，保留搜索条件与选中项 |
+| Single-click | Select an item without changing visibility |
+| Left double-click | Toggle only the clicked icon |
+| Ctrl / Shift-click | Select multiple items, then use **Hide selected** / **Restore selected** |
+| Right-click | Open properties, visibility, rule and end-task commands |
+| Hover | Inspect state, rules, cached tooltip, process, PID, full path and icon identifier |
+| Search | Filter by application name, process or path |
+| List / Grid | Switch layouts while preserving the search and selection |
 
-隐藏项的图标和文字淡化显示。规则项在列表中显示 **✓ 命中**，在网格中显示角标；规则标记与当前显示状态相互独立。两种布局均支持多选、悬浮详情及双击操作，强蓝色高亮仅用于鼠标所在项。
+Hidden items have faded icons and text. Rule members display **✓ Matched** in the list and a corner badge in the grid, independently of their current visibility. Both layouts support multiple selection, tooltips and double-click actions. Only the hovered item receives a bright blue highlight.
 
-**属性** 使用只读表格展示进程、图标和文件版本等信息。选择行后可点击 **复制信息**；未选择时复制全部信息。
+**Properties** presents process, icon and file-version information in a read-only table. Select rows and choose **Copy information**, or copy all information when no rows are selected.
 
-**结束任务** 会强制结束点中图标所属的进程，未保存的数据不会自动保存。执行前核对进程路径与启动时间，不结束其他同名进程或子进程；隐藏规则保留。TrayPilot 自身应通过 **退出** 结束，“安全删除硬件并弹出媒体”等由 Explorer 托管的图标不提供结束任务操作。
+**End task** forcefully terminates the process owning the clicked icon; unsaved work is not saved automatically. TrayPilot checks its path and start time first, and does not terminate other processes with the same name or child processes. Hide rules are retained. Use **Exit** for TrayPilot itself. Explorer-hosted icons such as Safely Remove Hardware and Eject Media cannot be ended as tasks.
 
-## 隐藏规则与恢复
+## Hide rules and restoration
 
-规则按 EXE 完整路径匹配，忽略大小写及路径分隔符差异。同一路径的多个实例、多个图标一起控制。
+Application rules match full executable paths, ignoring case and path-separator differences. Existing rules retain this scope. Individual icon rules match the path and GUID, or UID plus window class, so they survive process restarts. Instances sharing the same icon identifier also match; changing identifiers requires a new rule.
 
-| 操作 | 图标与规则的变化 |
+Multiple icons for one application display their identifiers and PIDs. Double-click, the individual context-menu toggle, and Hide/Restore selected affect only the chosen icons. To replace an existing application rule with an individual rule, remove the application rule from **Hide rules**, then choose **Auto-hide only this icon** on the desired icon. Multi-icon applications also expose individual controls in the tray submenu.
+
+| Command | Effect on icons and rules |
 | --- | --- |
-| 添加到命中规则 | 保存路径；自动隐藏未暂停时立即应用，暂停时只保存 |
-| 手动隐藏 / 恢复 | 不增删规则；手动恢复规则命中项后，本次运行期间暂时跳过该路径的自动隐藏 |
-| 隐藏规则命中 | 按保存的规则隐藏图标、清除临时显示例外，并恢复自动隐藏 |
-| 显示所有（快捷键） | 显示已识别的隐藏图标及 TrayPilot 自身图标，保留规则，并暂停自动隐藏 |
-| 全部恢复（主界面按钮） | 恢复本工具隐藏的图标，保留全部规则；本次运行期间暂时跳过已恢复路径的自动隐藏 |
-| 退出 | 恢复本工具隐藏的图标并退出，保留隐藏规则供下次启动使用 |
+| Add to matching rules | Save the path and apply hiding immediately unless automatic hiding is paused |
+| Manually hide / restore | Keep rules unchanged; restoring one matched icon temporarily excludes only that icon from automatic hiding for this session |
+| Hide matching icons | Hide matching icons, clear temporary exceptions and resume automatic hiding |
+| Show all icons (hotkey) | Show detected hidden icons and TrayPilot's own icon, retain rules and pause automatic hiding |
+| Restore all (main window button) | Restore icons hidden by TrayPilot, retaining all rules and temporarily skipping automatic hiding for restored paths during this session |
+| Exit | Restore icons hidden by TrayPilot and quit, retaining rules for the next launch |
 
-**全部恢复、单个恢复与隐藏均不增删命中规则。** 自动隐藏的暂停状态会保存并跨重启生效；手动恢复（包括全部恢复）产生的临时例外不会保存，执行 **隐藏规则命中** 也会清除这些例外。
+**Restore all, individual restoration and manual hiding never add or remove matching rules.** The automatic-hiding pause state survives restarts. Temporary exceptions from manual restoration (including Restore all) do not survive a restart and are also cleared by **Hide matching icons**.
 
-顶栏菜单中的 **隐藏规则** 可查看所有已保存规则，包括当前未运行的软件。列表展示图标、名称与完整路径，支持多选删除。删除规则前先恢复对应图标，恢复失败时保留该规则以便重试；文件不存在时显示默认图标。
+Open **Hide rules** from the top menu to view saved rules, including applications that are not running. Entries show an icon, name and full path, and support multiple deletion. Removing a rule restores its icons first; failed restoration retains the rule for retry. Missing executables use a fallback icon.
 
-默认每 **2.5 秒** 自动刷新。关闭 **自动刷新** 只停止周期检查，不会恢复图标或改变规则；已开始的检查会完成。仍可手动点击 **刷新**，显示 / 隐藏等操作也会更新列表。手动刷新仍会应用未暂停的隐藏规则，因此关闭自动刷新不等于暂停自动隐藏。每次启动都会默认开启自动刷新。
+Automatic refresh runs every **2.5 seconds** by default. Turning it off stops periodic checks without restoring icons or changing rules; a check already in progress finishes. You can still use **Refresh**, and visibility actions also update the list. Manual refresh still applies rules when automatic hiding is active, so disabling auto-refresh does not pause automatic hiding. Auto-refresh starts enabled on every launch.
 
-刷新保留搜索框内容、焦点、光标 / 选区及已有选择；期间输入的新搜索条件会应用于更新后的结果。内容未变化时不重建列表。
+Refresh preserves search text, focus, caret / text selection and existing item selection. Search edits made during a refresh apply to the updated results. Unchanged content does not rebuild the list.
 
-## 系统托盘与开机启动
+## System tray and startup
 
-左键单击或双击 TrayPilot 托盘图标打开主界面，右键打开快捷管理菜单。
+Left-click or double-click TrayPilot's tray icon to open the main window; right-click for quick controls.
 
-- 快捷管理列出已识别的软件，不受主界面搜索过滤影响，每页最多 10 个程序。
-- 勾选表示该软件的所有托盘图标正常显示；未勾选表示至少一个隐藏。点击后，全部显示的项目会隐藏，含隐藏图标的项目会全部显示。
-- 使用 **上一页 / 下一页** 或鼠标滚轮翻页，到达首尾页后停止。
-- 每页都保留 **TrayPilot（本程序）** 开关，也可在设置中显示 / 隐藏自身托盘图标。图标隐藏后，再次运行程序可唤回已有主窗口。
-- 菜单还提供 **刷新、开机启动、设置、关于、退出**。关于窗口展示版本、系统信息、程序路径、设置目录及语言包目录。
+- Quick controls list detected applications independently of the main search filter, with up to 10 applications per page.
+- A check mark means all tray icons for that application are shown. Applications with multiple icons open a submenu with individual toggles and an **All icons for this application** toggle.
+- Use **Previous page / Next page** or the mouse wheel to navigate. Scrolling stops at either end.
+- Every page retains the **TrayPilot (this application)** visibility toggle. Its icon can also be toggled in Settings. Run the executable again to reopen the existing window when its icon is hidden.
+- The menu also provides **Refresh, Start with Windows, Settings, About and Exit**. About displays the version, operating system, executable path, settings folder and language folder.
 
-**关闭窗口后保留在托盘运行** 默认开启，后台继续执行未暂停的规则；在设置中关闭后，关闭窗口会恢复图标并退出。
+**Keep running in the tray when the window is closed** is enabled by default; active rules continue to run in the background. Disable this setting to restore icons and exit when closing the window.
 
-**开机启动** 默认关闭，可在设置中保存启用，也可在托盘菜单中立即切换。启用后在当前用户登录 Windows 时启动，无需管理员权限；默认进入托盘后台，若自身托盘图标已关闭，则显示主界面。手动启动仍打开主界面。禁用会移除启动项，移动 EXE 后请从新位置重新启用。
+**Start with Windows** is off by default. Enable it by saving Settings or toggle it immediately in the tray menu. It starts TrayPilot when the current user signs in, without administrator permissions. Startup launches stay in the tray unless TrayPilot's own icon is disabled, in which case the main window opens. Manual launches open the main window. Disabling removes the startup entry; re-enable it from the new location after moving the executable.
 
-## 快捷键、外观与语言
+## Hotkeys, appearance and language
 
-在 **设置** 中分别启用快捷键，在输入框按 Ctrl 或 Alt 加其他键后保存。三个快捷键默认均不注册，重复或已被占用的组合会提示更换并保留原有设置。
+Enable each hotkey separately in **Settings**, focus its input, press Ctrl or Alt with another key, and save. All three start disabled. Duplicate or occupied combinations are rejected while retaining the previous settings.
 
-| 功能 | 预置组合 |
+| Action | Preset combination |
 | --- | --- |
-| 打开主界面 | Ctrl+Alt+M |
-| 显示所有 | Ctrl+Alt+S |
-| 隐藏规则命中 | Ctrl+Alt+H |
+| Open main window | Ctrl+Alt+M |
+| Show all icons | Ctrl+Alt+S |
+| Hide matching icons | Ctrl+Alt+H |
 
-快捷键在主窗口隐藏时仍有效。旧版“快捷管理”快捷键已移除，其绑定不会自动用于新操作。
+Hotkeys remain available while the main window is hidden. The former quick-controls hotkey was removed; its binding is not reused for a new action.
 
-**外观** 提供跟随系统（默认）、浅色和深色，统一应用到主界面、设置、属性、关于、规则窗口及菜单；跟随系统时响应系统主题变化。
+**Appearance** offers Follow system (default), Light and Dark across the main window, Settings, Properties, About, rules and menus. Follow system responds to system theme changes.
 
-**语言** 支持简体中文和 English。首次启动或配置中未指定语言时，根据系统界面语言匹配语言包；不支持时使用英文。手动选择后保存即可立即切换，后续启动保留已保存的选择。语言、主题、关闭到托盘、自身图标显示状态、自动隐藏暂停状态及快捷键均会保存。软件名称、路径和第三方提示文字保持原文。
+**Language** offers Simplified Chinese and English. On first launch or when no language is configured, the system UI language is matched to an available language pack; unsupported languages fall back to English. Manual selections take effect after saving and are retained on subsequent launches. Language, theme, close-to-tray behavior, own-icon visibility, automatic-hiding pause state and hotkeys are persisted. Application names, paths and third-party tooltip text retain their original language.
 
-### 添加语言包
+### Add a language pack
 
-运行时语言包位于 `app/languages/`，源文件位于 `source/languages/`，使用 UTF-8 JSON：
+Runtime language packs are in `app/languages/`; source packs are in `source/languages/`. They use UTF-8 JSON:
 
 ```json
 {
@@ -98,43 +100,43 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 }
 ```
 
-键使用简短、稳定的语义化英文标识，采用 `camelCase` 命名（如 `mainWindowTitle`、`trayIconDetails`），不包含显示文案中的标点、换行或格式占位符。复制现有完整语言包，只翻译 `Strings` 的值，保留键和 `{0}`、`{1}` 等格式占位符。文件名（不含扩展名）作为语言标识，`Name` 为设置中的显示名称。重新打开设置即可发现新增文件。缺失翻译回退为内置英文；缺失或无效的语言包不会阻止正常图标管理。
+Keys are short, stable semantic English identifiers in `camelCase` (for example, `mainWindowTitle` and `trayIconDetails`), without display punctuation, line breaks or format placeholders. Copy an existing complete pack and translate only the values in `Strings`, retaining keys and placeholders such as `{0}` and `{1}`. The filename without its extension identifies the language; `Name` is its label in Settings. Reopen Settings to discover added packs. Missing translations fall back to built-in English. Missing or malformed packs do not prevent normal icon management.
 
-## 配置与异常恢复
+## Configuration and recovery
 
-配置、隐藏规则和恢复记录保存在：
+Settings, hide rules and recovery records are stored in:
 
 ```text
 %LOCALAPPDATA%\TrayPilot\settings.json
 ```
 
-隐藏前先保存恢复记录，启动时尝试恢复上次记录，再按当前规则运行。正常退出前也会恢复；若恢复失败，程序保留记录并取消退出，可稍后重试。
+Recovery records are saved before hiding icons. On startup, TrayPilot attempts to restore recorded icons before applying the current rules. It also restores icons before a normal exit; if restoration fails, it retains the records and cancels exit so you can retry.
 
-若程序被强制结束，可重新打开后点击 **全部恢复**，或重新启动目标软件，让它重新创建图标。仍有图标隐藏时不要删除恢复记录。
+After a forced termination, reopen TrayPilot and choose **Restore all**, or restart the affected application so it recreates its icons. Do not delete recovery records while icons remain hidden.
 
-程序不修改其他软件配置，也不写入 Windows 托盘的 `NotifyIconSettings` 设置。开机启动单独使用当前用户的 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 启动项，并在切换时清理本程序对应的 `StartupApproved\Run` 状态。
+TrayPilot does not modify other applications' settings or write to Windows tray `NotifyIconSettings`. Start with Windows separately uses the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry and clears TrayPilot's corresponding `StartupApproved\Run` state when toggled.
 
-## 兼容范围与实现
+## Compatibility and implementation
 
-本项目是面向 **Windows 11 25H2** 的原型。其他系统版本、未来 Windows 补丁及特殊软件的兼容性需要实际验证。
+This project is a prototype targeting **Windows 11 25H2**. Other Windows versions, future patches and unusual applications require validation on the actual system.
 
-- 优先使用 Windows 缓存图标，依次回退到 EXE 图标、通用图标。缓存图标及提示可能不是实时内容；名称主要来自 EXE 文件描述，脚本可能显示宿主名称。
-- 音量、网络、电池、时钟等 Explorer 内建控件不在管理范围内。
-- 无托盘记录、路径匹配失败、受保护进程或特殊实现可能无法识别或控制。
+- Icons come from the Windows cache, then the executable, then a generic fallback. Cached icons and tooltips may be stale. Names mainly come from executable file descriptions, so scripts may display their host application's name.
+- Explorer's built-in volume, network, battery and clock controls are outside the managed scope.
+- Missing tray records, unmatched paths, protected processes and special implementations may prevent discovery or control.
 
-## 从源码构建与诊断
+## Build and diagnostics
 
-### 本地构建
+### Local build
 
-在 Windows 上安装 .NET 8 SDK 或支持 `net8.0-windows` 的更新 SDK，在仓库根目录执行：
+On Windows, install the .NET 8 SDK or a newer SDK supporting `net8.0-windows`, then run from the repository root:
 
 ```powershell
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-输出为 `app/TrayPilot.exe` 和独立的 `app/languages/` 语言包目录。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。
+The output includes `app/TrayPilot.exe` and the separate `app/languages/` folder. Source code is under `source/`, using C#, Windows Forms and Win32 APIs.
 
-在已登录的 Windows 桌面会话中运行诊断，并等待进程结束：
+Run diagnostics in a signed-in Windows desktop session and wait for each process to finish:
 
 ```powershell
 Start-Process .\app\TrayPilot.exe -ArgumentList '--scan', '.\scan.json' -Wait
@@ -142,8 +144,10 @@ Start-Process .\app\TrayPilot.exe -ArgumentList '--self-test', '.\test-report.tx
 Start-Process .\app\TrayPilot.exe -ArgumentList '--startup-test', '.\test-report-startup.txt' -Wait
 ```
 
-- `--scan`：将当前识别到的托盘记录写入 JSON，包含进程路径和提示等信息。
-- `--self-test`：使用独立测试进程、隔离配置及测试注册表路径，检查 UID/GUID 图标识别、隐藏恢复、规则持久化、进程身份校验、界面交互、语言、快捷键及开机启动等行为。
-- `--startup-test`：单独检查开机启动注册和启动行为。
+- `--scan` writes discovered tray records to JSON, including process paths and tooltips.
+- `--self-test` uses a separate test process, isolated configuration and test registry paths to check UID/GUID discovery, hiding and restoration, rule persistence, process identity, UI interaction, languages, hotkeys and startup behavior.
+- `--startup-test` checks startup registration and launch behavior separately.
+- `--icon-selection-test` checks individual control, persistent UID/GUID rules, temporary restoration and matching after process restarts using a separate two-icon test application.
+- `--verify-task-manager` requires Task Manager to be running. It uses isolated settings to verify discovery of both the cached and live CPU icons, rule-based hiding and rediscovery, then restores their original visibility.
 
-报告由命令运行后生成，不随源码提交；请以当前系统上生成的结果为准。
+Reports are generated by these commands and are not committed with the source. Use results generated on your current system when assessing compatibility.

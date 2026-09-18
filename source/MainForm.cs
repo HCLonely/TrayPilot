@@ -102,7 +102,7 @@ internal sealed partial class MainForm : Form
         FormClosed += (_, _) => timer.Stop();
     }
     void UpdateTimer() => timer.Enabled = autoRefresh.Checked && !closing && !IsDisposed;
-    void UpdateStatus() => status.Text = L.F("iconStatisticsStatus", entries.Count, controller.Saved.HiddenPaths.Count,
+    void UpdateStatus() => status.Text = L.F("iconStatisticsStatus", entries.Count, controller.Saved.HiddenPaths.Count + controller.Saved.HiddenIcons.Count,
         L.T(autoRefresh.Checked ? "autoRefreshStatus" : "manualRefreshStatus"))
         + (controller.Saved.RulesPaused ? " · " + L.T("autoHidePaused") : "")
         + (hotkeyWarning ? " · " + L.T("hotkeyRegistrationFailedMessage") : "");
@@ -149,7 +149,7 @@ internal sealed partial class MainForm : Form
         // Leave unchanged rows intact so periodic scanning does not dismiss tooltips or reset scrolling.
         var content = System.Text.Json.JsonSerializer.Serialize(new { Language = L.Current, Search = search.Text, Rows = entries.Select(x => new
         {
-            x.Key, x.Name, x.Path, x.Tooltip, x.State, Rule = controller.HasRule(x.Path), Manual = controller.IsTemporarilyShown(x.Path),
+            x.Key, x.Name, x.Path, x.Tooltip, x.State, Rule = controller.HasRule(x), Manual = controller.IsTemporarilyShown(x),
             Icon = x.IconSnapshot == null ? "" : Convert.ToBase64String(x.IconSnapshot)
         }) });
         if (content == renderedContent) return;
@@ -171,10 +171,12 @@ internal sealed partial class MainForm : Form
             images.Images.Add(icon);
             using var largeIcon = TrayImages.Create(entry, largeImages.ImageSize.Width);
             largeImages.Images.Add(largeIcon);
-            var item = new TrayListItem(entry.Name, controller.HasRule(entry.Path)) { Tag = entry, ImageIndex = images.Images.Count - 1,
+            var label = entries.Count(x => Controller.SamePath(x.Path, entry.Path)) > 1
+                ? $"{entry.Name} · {(entry.Guid == Guid.Empty ? entry.Id.ToString() : entry.Guid.ToString())} · PID {entry.Pid}" : entry.Name;
+            var item = new TrayListItem(label, controller.HasRule(entry)) { Tag = entry, ImageIndex = images.Images.Count - 1,
                 ToolTipText = Details(entry), Selected = selected.Contains(entry.Key) };
             item.SubItems.Add(L.T(entry.State == 1 ? "fullyHidden" : "normal"));
-            item.SubItems.Add(controller.HasRule(entry.Path) ? L.T("ruleMatchIndicator") : "—");
+            item.SubItems.Add(controller.HasRule(entry) ? L.T("ruleMatchIndicator") : "—");
             item.SubItems.Add(System.IO.Path.GetFileName(entry.Path)); item.SubItems.Add(entry.Path);
             item.BackColor = list.View == View.Details && list.Items.Count % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
             if (entry.State == 1) item.ForeColor = Color.FromArgb(140, 145, 155);
@@ -187,10 +189,10 @@ internal sealed partial class MainForm : Form
         finally { list.EndUpdate(); oldImages?.Dispose(); oldLargeImages?.Dispose(); }
     }
     string Details(TrayEntry entry) => L.F("trayIconDetails",
-        entry.Name, L.T(entry.State == 1 ? "hidden" : "shown"), L.T(controller.HasRule(entry.Path) ? "yes" : "no"),
+        entry.Name, L.T(entry.State == 1 ? "hidden" : "shown"), L.T(controller.HasRule(entry) ? "yes" : "no"),
         string.IsNullOrWhiteSpace(entry.Tooltip) ? L.T("none") : entry.Tooltip, System.IO.Path.GetFileName(entry.Path), entry.Pid,
         entry.Path, entry.Guid == Guid.Empty ? entry.Id.ToString() : entry.Guid.ToString())
-        + (controller.IsTemporarilyShown(entry.Path) ? "\n" + L.T("temporarilyShownHelp") : "");
+        + (controller.IsTemporarilyShown(entry) ? "\n" + L.T("temporarilyShownHelp") : "");
 
     void ToggleEntry(TrayEntry entry)
     {
@@ -198,7 +200,7 @@ internal sealed partial class MainForm : Form
         {
             var state = Scanner.SameOwner(entry) ? Native.State(entry) : -1;
             if (state is not (0 or 1)) throw new IOException(L.T("iconUnavailableMessage"));
-            ChangePaths(new[] { entry.Path }, state == 0);
+            ChangeEntries(new[] { entry }, state == 0);
         });
     }
 
@@ -210,19 +212,24 @@ internal sealed partial class MainForm : Form
         itemMenu.Items.Add(L.T("properties"), null, (_, _) => { itemMenu.Close(); ShowProperties(entry); });
         var toggle = itemMenu.Items.Add(L.T(state == 1 ? "showIcons" : "hideIcons"), null, (_, _) => { itemMenu.Close(); ToggleEntry(entry); });
         toggle.Enabled = !busy && state is 0 or 1;
-        var rule = itemMenu.Items.Add(L.T(controller.HasRule(entry.Path) ? "alreadyInMatchingRules" : "addToMatchingRules"), null, (_, _) =>
+        var rule = itemMenu.Items.Add(L.T(controller.HasRule(entry) ? "alreadyInMatchingRules" : "addIconRule"), null, (_, _) =>
         {
-            itemMenu.Close(); RunAction(() => controller.AddRule(entry.Path));
+            itemMenu.Close(); RunAction(() => controller.AddIconRule(entry));
         });
-        rule.Enabled = !busy && !controller.HasRule(entry.Path) && state is 0 or 1;
+        rule.Enabled = !busy && !controller.HasRule(entry) && state is 0 or 1;
         var end = itemMenu.Items.Add(L.T("endTask"), null, async (_, _) => { itemMenu.Close(); await EndTaskAsync(entry); });
         end.Enabled = !busy && state is 0 or 1 && entry.Pid != Environment.ProcessId && !Scanner.IsShellEntry(entry);
+        var program = new ToolStripMenuItem(L.T("allApplicationIcons")) { Enabled = !busy && state is 0 or 1 };
+        program.DropDownItems.Add(L.T("hideIcons"), null, (_, _) => { itemMenu.Close(); RunAction(() => ChangePaths(new[] { entry.Path }, true)); });
+        program.DropDownItems.Add(L.T("showIcons"), null, (_, _) => { itemMenu.Close(); RunAction(() => ChangePaths(new[] { entry.Path }, false)); });
+        program.DropDownItems.Add(L.T("addToMatchingRules"), null, (_, _) => { itemMenu.Close(); RunAction(() => controller.AddRule(entry.Path)); }).Enabled = !controller.HasRule(entry.Path);
+        itemMenu.Items.Add(program);
         UiTheme.Apply(itemMenu); itemMenu.Show(list, location);
     }
 
     void ShowProperties(TrayEntry entry)
     {
-        using var dialog = InfoDialog.Create(entry.Name + " · " + L.T("properties"), ProgramActions.Properties(entry, controller.HasRule(entry.Path)), Font);
+        using var dialog = InfoDialog.Create(entry.Name + " · " + L.T("properties"), ProgramActions.Properties(entry, controller.HasRule(entry)), Font);
         timer.Stop();
         try { dialog.ShowDialog(this); } finally { UpdateTimer(); }
     }
@@ -256,9 +263,17 @@ internal sealed partial class MainForm : Form
     }
     void ChangeSelected(bool hide)
     {
-        var paths = list.SelectedItems.Cast<ListViewItem>().Select(x => ((TrayEntry)x.Tag!).Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (paths.Count == 0) { status.Text = L.T("noApplicationSelectedMessage"); return; }
-        RunAction(() => ChangePaths(paths, hide));
+        var selected = list.SelectedItems.Cast<ListViewItem>().Select(x => (TrayEntry)x.Tag!).ToList();
+        if (selected.Count == 0) { status.Text = L.T("noApplicationSelectedMessage"); return; }
+        RunAction(() => ChangeEntries(selected, hide));
+    }
+    void ChangeEntries(IEnumerable<TrayEntry> selected, bool hide)
+    {
+        foreach (var entry in selected.DistinctBy(x => x.Key))
+        {
+            controller.SetManualVisibility(entry, hide);
+            if (hide) controller.Hide(entry); else controller.Show(entry);
+        }
     }
     async void RunAction(Action action)
     {
@@ -292,9 +307,18 @@ internal sealed partial class MainForm : Form
             var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(x => Controller.SamePath(x.Path, path))
                 ?? new TrayEntry { Path = path, Name = System.IO.Path.GetFileNameWithoutExtension(path) };
             using var icon = TrayImages.Create(entry with { State = 0 }, 32); images.Images.Add(icon);
-            var row = new ListViewItem(entry.Name) { Tag = path, ImageIndex = images.Images.Count - 1, ToolTipText = path,
+            var row = new ListViewItem(entry.Name + " · " + L.T("allApplicationIcons")) { Tag = path, ImageIndex = images.Images.Count - 1, ToolTipText = path,
                 BackColor = rules.Items.Count % 2 == 0 ? UiTheme.Surface : UiTheme.Stripe };
             row.SubItems.Add(path); rules.Items.Add(row);
+        }
+        foreach (var rule in controller.Saved.HiddenIcons)
+        {
+            var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(rule.Matches)
+                ?? new TrayEntry { Path = rule.Path, Name = System.IO.Path.GetFileNameWithoutExtension(rule.Path) };
+            using var icon = TrayImages.Create(entry with { State = 0 }, 32); images.Images.Add(icon);
+            var row = new ListViewItem($"{entry.Name} · {rule.Label}") { Tag = rule, ImageIndex = images.Images.Count - 1,
+                ToolTipText = rule.Path + "\n" + rule.Label, BackColor = rules.Items.Count % 2 == 0 ? UiTheme.Surface : UiTheme.Stripe };
+            row.SubItems.Add(rule.Path); rules.Items.Add(row);
         }
         rules.Resize += (_, _) => rules.Columns[1].Width = Math.Max(320, rules.ClientSize.Width - rules.Columns[0].Width - 24);
         var empty = new Label { Text = L.T("noHideRulesMessage"), Dock = DockStyle.Bottom, Height = 40, ForeColor = UiTheme.Muted, Visible = rules.Items.Count == 0 };
@@ -308,6 +332,11 @@ internal sealed partial class MainForm : Form
             {
                 foreach (var row in rules.SelectedItems.Cast<ListViewItem>().ToList())
                 {
+                    if (row.Tag is IconRule iconRule)
+                    {
+                        foreach (var entry in controller.Saved.Recovery.Where(iconRule.Matches).ToList()) controller.Show(entry);
+                        controller.RemoveIconRule(iconRule); rules.Items.Remove(row); continue;
+                    }
                     var path = (string)row.Tag!;
                     // Keep the rule available for retry if restoring an icon fails.
                     foreach (var entry in controller.Saved.Recovery.Where(x => Controller.SamePath(x.Path, path)).ToList()) controller.Show(entry);

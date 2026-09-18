@@ -22,6 +22,8 @@ internal static class Diagnostics
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
             if (args[0] == "--startup-test" && args.Length == 2) return TestStartup(args[1]);
             if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
+            if (args[0] == "--verify-task-manager" && args.Length == 2) return TestTaskManager(args[1]);
+            if (args[0] == "--icon-selection-test" && args.Length == 2) return TestIconSelection(args[1]);
             if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en")
             {
                 const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
@@ -137,6 +139,126 @@ internal static class Diagnostics
         if (!File.Exists(Path.Combine(folder, "ready"))) throw new Exception("Host did not become ready.");
         return p;
     }
+    static int TestIconSelection(string report)
+    {
+        var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report))!, "integration-selection-" + Guid.NewGuid().ToString("N"));
+        var controller = new Controller(Path.Combine(folder, "state"));
+        using var host = StartHost(folder);
+        var log = new List<string>();
+        void Check(bool ok, string message) { if (!ok) throw new Exception(message); log.Add("PASS: " + message); }
+        List<TrayEntry> Discover(Process process)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            List<TrayEntry> icons;
+            do
+            {
+                icons = Scanner.Scan().Where(x => x.Pid == process.Id).OrderBy(x => x.Id).ToList();
+                if (icons.Count == 2) return icons;
+                Thread.Sleep(100);
+            } while (!process.HasExited && DateTime.UtcNow < deadline);
+            return icons;
+        }
+        try
+        {
+            var own = Discover(host);
+            Check(own.Count == 2, "Discover two independently addressable icons from one application.");
+            using var form = new MainForm(controller, initialize: false);
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            typeof(MainForm).GetField("entries", flags)!.SetValue(form, own);
+            var change = typeof(MainForm).GetMethod("ChangeEntries", flags)!;
+            change.Invoke(form, new object[] { new[] { own[0] }, true });
+            Check(Native.State(own[0]) == 1 && Native.State(own[1]) == 0, "Hiding one icon leaves its sibling visible.");
+            change.Invoke(form, new object[] { new[] { own[0] }, false });
+            foreach (var target in own)
+            {
+                controller.AddIconRule(target); controller.AddIconRule(target);
+                Check(controller.Saved.HiddenIcons.Count == 1, "Duplicate icon rules are ignored.");
+                var loaded = new Controller(Path.Combine(folder, "state"));
+                loaded.Apply(own);
+                Check(own.All(x => Native.State(x) == (x.Key == target.Key ? 1 : 0)), "Persisted UID/GUID rule hides only its matching icon.");
+                loaded.RestoreManaged();
+                controller.RemoveIconRule(controller.Saved.HiddenIcons.Single());
+            }
+            controller.AddRule(own[0].Path); controller.Apply(own);
+            change.Invoke(form, new object[] { new[] { own[0] }, false }); controller.Apply(own);
+            Check(Native.State(own[0]) == 0 && Native.State(own[1]) == 1, "Restoring one icon under an application rule preserves sibling hiding after refresh.");
+            controller.ResetManualVisibility(); controller.Apply(own);
+            Check(own.All(x => Native.State(x) == 1), "Resuming rules clears individual temporary overrides.");
+            controller.RemoveRule(own[0].Path); controller.RestoreManaged();
+            foreach (var icon in own) controller.AddIconRule(icon);
+            controller.Apply(own);
+            using (var dialog = form.CreateRulesDialog())
+            {
+                dialog.Show(); Application.DoEvents();
+                var rules = dialog.Controls.OfType<ListView>().Single();
+                Check(rules.Items.Count == 2 && rules.Items.Cast<ListViewItem>().All(x => x.Tag is IconRule), "Rule manager lists individual icon rules separately.");
+                var selected = rules.Items.Cast<ListViewItem>().Single(x => ((IconRule)x.Tag!).Matches(own[0]));
+                selected.Selected = true; rules.Focus(); Application.DoEvents();
+                dialog.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("removeRulesAndRestoreIcons")).PerformClick();
+                Check(controller.Saved.HiddenIcons.Count == 1 && Native.State(own[0]) == 0 && Native.State(own[1]) == 1,
+                    "Removing an individual rule restores only its icon and retains its sibling rule.");
+                dialog.Close();
+            }
+            controller.RemoveIconRule(controller.Saved.HiddenIcons.Single()); controller.RestoreManaged();
+            controller.AddIconRule(own[0]);
+            File.WriteAllText(Path.Combine(folder, "stop"), "");
+            Check(host.WaitForExit(5000), "First test owner exits.");
+            File.Delete(Path.Combine(folder, "stop")); File.Delete(Path.Combine(folder, "ready"));
+            using var restarted = StartHost(folder);
+            try
+            {
+                var next = Discover(restarted);
+                Check(next.Count == 2, "Rediscover icons after owner restart.");
+                controller.Apply(next);
+                Check(next.All(x => Native.State(x) == (x.Id == own[0].Id ? 1 : 0)), "Icon rule survives a new process and window without hiding its sibling.");
+                controller.RestoreManaged();
+            }
+            finally { File.WriteAllText(Path.Combine(folder, "stop"), ""); restarted.WaitForExit(5000); }
+            return 0;
+        }
+        finally
+        {
+            controller.RestoreManaged(); File.WriteAllText(Path.Combine(folder, "stop"), ""); host.WaitForExit(5000);
+            File.WriteAllLines(report, log);
+        }
+    }
+
+    static int TestTaskManager(string report)
+    {
+        var log = new List<string>();
+        var entries = Scanner.Scan().Where(x => Path.GetFileName(x.Path).Equals("taskmgr.exe", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (entries.Count == 0) throw new Exception("Task Manager must be running with a tray icon.");
+        if (!entries.Any(x => x.Id == 0)) throw new Exception("Task Manager's live UID 0 icon was not discovered.");
+        var controller = new Controller(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report))!,
+            "integration-taskmgr-" + Guid.NewGuid().ToString("N")));
+        try
+        {
+            foreach (var entry in entries)
+            {
+                if (!Scanner.SameOwner(entry) || Scanner.SameOwner(entry with { Started = entry.Started + 1 }))
+                    throw new Exception("Task Manager owner validation failed.");
+                log.Add($"PASS: Discover and verify Task Manager icon UID {entry.Id}, initial state {entry.State}.");
+            }
+            controller.AddRule(entries[0].Path);
+            controller.Apply(entries);
+            for (int i = 0; i < 25; i++)
+            {
+                Thread.Sleep(200);
+                if (entries.Any(x => Native.State(x) != 1)) throw new Exception("Task Manager icon did not remain hidden.");
+            }
+            log.Add("PASS: The path rule hides all Task Manager icons through live CPU updates for five seconds.");
+            var rescanned = Scanner.Scan().Where(x => Controller.SamePath(x.Path, entries[0].Path)).ToList();
+            if (entries.Any(x => !rescanned.Any(y => y.Key == x.Key && y.State == 1)))
+                throw new Exception("Hidden Task Manager icons were lost during rescan.");
+            log.Add("PASS: Hidden icons remain discoverable for restoration.");
+        }
+        finally { controller.RestoreManaged(); File.WriteAllLines(report, log); }
+        if (entries.Any(x => Native.State(x) != x.State)) throw new Exception("Original visibility was not restored.");
+        log.Add("PASS: Restore original visibility without changing existing hidden icons.");
+        File.WriteAllLines(report, log);
+        return 0;
+    }
+
     static int TestSpecialIcons(string report)
     {
         var log = new List<string>();
@@ -341,8 +463,8 @@ internal static class Diagnostics
                 new object[] { new MouseEventArgs(button, clicks, bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2, 0) });
             if (button == MouseButtons.Right && clicks == 1)
             {
-                check(menu.Visible && menu.Items.Count == 4 && menu.Items[0].Text == "属性" && menu.Items[3].Text == "结束任务",
-                    "Right-click opens the manager's four-item context menu.");
+                check(menu.Visible && menu.Items.Count == 5 && menu.Items[0].Text == "属性" && menu.Items[3].Text == "结束任务",
+                    "Right-click offers individual and application-wide controls.");
                 menu.Close();
             }
             var until = DateTime.UtcNow.AddSeconds(60);
@@ -369,7 +491,7 @@ internal static class Diagnostics
         }
         layoutMode.Checked = false;
         ClickIcon();
-        check(own.All(x => Native.State(x) == 1) && !controller.HasRule(own[0].Path), "Double-click hides icons without adding a rule.");
+        check(Native.State(own[0]) == 1 && Native.State(own[1]) == 0 && !controller.HasRule(own[0]), "Double-click hides only the clicked icon without adding a rule.");
         var hidden = list.Items.Cast<ListViewItem>().First(x => ((TrayEntry)x.Tag!).Key == own[0].Key);
         check(hidden.ForeColor == Color.FromArgb(140, 145, 155) && hidden.ToolTipText.Contains("已隐藏"), "Hidden row and hover details reflect hidden state.");
         foreach (bool grid in new[] { false, true })
@@ -438,7 +560,7 @@ internal static class Diagnostics
         check(!refreshTimer.Enabled, "Manual actions do not restart disabled automatic refresh.");
         layoutMode.Checked = true;
         ClickIcon();
-        check(own.All(x => Native.State(x) == 1), "Grid double-click hides icons.");
+        check(Native.State(own[0]) == 1 && Native.State(own[1]) == 0, "Grid double-click hides only the clicked icon.");
         var gridItem = list.Items.Cast<ListViewItem>().First(x => ((TrayEntry)x.Tag!).Key == own[0].Key);
         gridItem.Selected = true;
         layoutMode.Checked = false;
@@ -456,7 +578,7 @@ internal static class Diagnostics
             var deadline = DateTime.UtcNow.AddSeconds(60);
             while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < deadline)
             { Application.DoEvents(); Thread.Sleep(1); }
-            check(own.All(x => Native.State(x) == (hide ? 1 : 0)), "Context-menu command changes the application icon state.");
+            check(Native.State(own[0]) == (hide ? 1 : 0) && Native.State(own[1]) == 0, "Context-menu command changes only the clicked icon.");
         }
         search.Text = own[0].Name; form.ActiveControl = search; search.Focus(); search.Select(1, 2);
         bool searchWasFocused = search.Focused;
@@ -472,9 +594,16 @@ internal static class Diagnostics
         check(search.Handle == searchHandle && search.Focused == searchWasFocused && form.ActiveControl == search && search.Text == own[0].Path && search.SelectionStart == 2 && search.SelectionLength == 3
             && list.Items.Count == 2, "Refresh preserves search text, control, focus and caret, and applies the latest filter.");
         typeof(MainForm).GetMethod("ShowItemMenu", flags)!.Invoke(form, new object[] { own[0], new Point(30, 30) });
-        check(menu.Items[2].Text == L.T("addToMatchingRules") && menu.Items[2].Enabled, "Context menu offers explicit rule addition.");
+        check(menu.Items[2].Text == L.T("addIconRule") && menu.Items[2].Enabled, "Context menu offers an individual icon rule.");
         menu.Items[2].PerformClick();
         var ruleDeadline = DateTime.UtcNow.AddSeconds(60);
+        while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        check(controller.HasIconRule(own[0]) && !controller.HasRule(own[0].Path) && Native.State(own[0]) == 1 && Native.State(own[1]) == 0,
+            "Adding an icon rule hides only that icon.");
+        controller.RemoveIconRule(controller.Saved.HiddenIcons.Single());
+        typeof(MainForm).GetMethod("ShowItemMenu", flags)!.Invoke(form, new object[] { own[0], new Point(30, 30) });
+        ((ToolStripMenuItem)menu.Items[4]).DropDownItems[2].PerformClick();
+        ruleDeadline = DateTime.UtcNow.AddSeconds(60);
         while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < ruleDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         check(controller.HasRule(own[0].Path) && own.All(x => Native.State(x) == 1), "Adding a matching rule immediately applies it when rules are active.");
         controller.AddRule(own[0].Path.ToUpperInvariant().Replace('\\', '/'));
@@ -647,7 +776,7 @@ internal static class Diagnostics
         check(AppRow().Checked && list.Items.Count == 0, "Tray quick controls include applications excluded by the main search filter.");
         foreach (bool expectedHidden in new[] { true, false })
         {
-            AppRow().PerformClick();
+            AppRow().DropDownItems[0].PerformClick();
             var deadline = DateTime.UtcNow.AddSeconds(60);
             while ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(form)! && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(1); }
             BuildMenu();
@@ -787,7 +916,7 @@ internal static class Diagnostics
         var loaded = new Controller(Path.GetDirectoryName(settingsFile)!).Saved;
         check(loaded.Theme == "dark" && loaded.CloseToTray && loaded.Language == "en-US" && loaded.ShowAllHotkeyEnabled && loaded.ShowAllHotkey == (int)chosen && loaded.MainHotkeyEnabled && loaded.MainHotkey == (int)mainChosen && !loaded.ShowTrayIcon,
             "Language, close-to-tray and hotkey settings survive a controller reload.");
-        L.Set("missing-language"); check(L.Current == "zh-CN" && L.T("about") == "关于", "Unknown language safely falls back to Simplified Chinese.");
+        L.Set("missing-language"); check(L.Current == L.FallbackLanguage && L.T("about") == "About", "Unknown language safely falls back to English.");
         controller.Saved.Theme = "system"; controller.Saved.Language = "zh-CN"; controller.Saved.ShowAllHotkeyEnabled = false; controller.Saved.MainHotkeyEnabled = false; controller.Saved.ShowTrayIcon = true; controller.RemoveRule(own[0].Path);
     }
 }

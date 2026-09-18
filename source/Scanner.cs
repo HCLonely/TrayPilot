@@ -94,16 +94,26 @@ internal static class Scanner
             var uidValue = key.GetValue("UID");
             if (guid == Guid.Empty && uidValue is not int) continue;
             var uid = uidValue is int v ? unchecked((uint)v) : 0;
+            // Task Manager's cache records UID -1, but its live CPU icon can use
+            // UID 0 on the same TrayiconMessageWindow. Discover both identities;
+            // never replace the cached UID, which may also still be registered.
+            bool taskManager = guid == Guid.Empty && Controller.SamePath(path,
+                System.IO.Path.Combine(Environment.SystemDirectory, "Taskmgr.exe"));
             foreach (var owner in shell ? list.Where(x => Native.WindowClass(x.Window) == "SystemTray_Main") : list)
             {
-                var entry = new TrayEntry { Path = path, Name = name, Tooltip = tooltip,
-                    Window = owner.Window, Pid = owner.Pid, Started = owner.Start, Id = uid, Guid = guid,
-                    IconSnapshot = key.GetValue("IconSnapshot") as byte[] };
-                int state = Native.State(entry);
-                // On tested Windows 11 25H2: S_OK = displayed (possibly in overflow), S_FALSE = NIS_HIDDEN.
-                if (state is not (0 or 1)) continue;
-                result[entry.Key] = entry with { State = state };
-                if (guid != Guid.Empty) break;
+                var ids = taskManager && uid != 0 && Native.WindowClass(owner.Window) == "TrayiconMessageWindow"
+                    ? new[] { uid, 0u } : new[] { uid };
+                foreach (var iconId in ids)
+                {
+                    var entry = new TrayEntry { Path = path, Name = name, Tooltip = tooltip,
+                        Window = owner.Window, Pid = owner.Pid, Started = owner.Start, Id = iconId, Guid = guid,
+                        IconSnapshot = key.GetValue("IconSnapshot") as byte[] };
+                    int state = Native.State(entry);
+                    // On tested Windows 11 25H2: S_OK = displayed (possibly in overflow), S_FALSE = NIS_HIDDEN.
+                    if (state is not (0 or 1)) continue;
+                    result[entry.Key] = entry with { State = state };
+                }
+                if (guid != Guid.Empty && result.ContainsKey(guid.ToString())) break;
             }
         }
         return result.Values.OrderBy(x => x.Name).ThenBy(x => x.Pid).ToList();

@@ -92,7 +92,7 @@ internal sealed partial class MainForm
             var row = new ToolStripMenuItem(entry.Name) { Checked = shown, CheckOnClick = false, Enabled = !busy,
                 Image = TrayImages.Create(entry with { State = shown ? 0 : 1 }, 20), Tag = entry.Path,
                 ToolTipText = entry.Path + "\n" + L.T(shown ? "clickToHideIconsHint" : "clickToShowIconsHint") };
-            row.Click += (_, _) =>
+            void ToggleGroup(object? sender, EventArgs args)
             {
                 trayMenu.Close();
                 RunAction(() =>
@@ -102,7 +102,22 @@ internal sealed partial class MainForm
                     if (current.Count == 0) throw new IOException(L.T("iconUnavailableMessage"));
                     ChangePaths(new[] { entry.Path }, current.All(x => x.State == 0));
                 });
-            };
+            }
+            if (active.Count == 1) row.Click += ToggleGroup;
+            else
+            {
+                row.ToolTipText = entry.Path;
+                var all = new ToolStripMenuItem(L.T("allApplicationIcons")) { Checked = shown };
+                all.Click += ToggleGroup; row.DropDownItems.Add(all);
+                row.DropDownItems.Add(new ToolStripSeparator());
+                foreach (var icon in active)
+                {
+                    var child = new ToolStripMenuItem($"{(icon.Guid == Guid.Empty ? "UID " + icon.Id : icon.Guid.ToString())} · PID {icon.Pid}")
+                        { Checked = icon.State == 0, ToolTipText = icon.Tooltip };
+                    child.Click += (_, _) => { trayMenu.Close(); ToggleEntry(icon); };
+                    row.DropDownItems.Add(child);
+                }
+            }
             trayMenu.Items.Add(row);
         }
         if (pages > 1)

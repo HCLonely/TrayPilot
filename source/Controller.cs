@@ -1,9 +1,19 @@
 using System.Text.Json;
 
 namespace TrayPilot;
+internal sealed record IconRule(string Path, uint Id, Guid Guid, string WindowClass)
+{
+    internal static IconRule From(TrayEntry entry) => new(Controller.NormalizePath(entry.Path), entry.Id, entry.Guid,
+        entry.Guid == Guid.Empty ? Native.WindowClass((nint)entry.Window) : "");
+    internal bool Matches(TrayEntry entry) => Controller.SamePath(Path, entry.Path) &&
+        (Guid != System.Guid.Empty ? Guid == entry.Guid : entry.Guid == System.Guid.Empty && Id == entry.Id &&
+            WindowClass == Native.WindowClass((nint)entry.Window));
+    internal string Label => Guid != System.Guid.Empty ? Guid.ToString() : $"UID {Id} · {WindowClass}";
+}
 internal sealed class SavedState
 {
     public List<string> HiddenPaths { get; set; } = new();
+    public List<IconRule> HiddenIcons { get; set; } = new();
     public List<TrayEntry> Recovery { get; set; } = new();
     public string Language { get; set; } = L.SystemLanguage;
     public bool CloseToTray { get; set; } = true;
@@ -21,6 +31,7 @@ internal sealed class Controller
 {
     readonly string file;
     readonly HashSet<string> manuallyShown = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, TrayEntry> individuallyShown = new();
     internal SavedState Saved { get; }
     internal Controller(string folder)
     {
@@ -36,13 +47,37 @@ internal sealed class Controller
     }
     internal static bool SamePath(string first, string second) => string.Equals(NormalizePath(first), NormalizePath(second), StringComparison.OrdinalIgnoreCase);
     internal bool HasRule(string path) => Saved.HiddenPaths.Any(x => SamePath(x, path));
+    internal bool HasIconRule(TrayEntry entry) => Saved.HiddenIcons.Any(x => x.Matches(entry));
+    internal bool HasRule(TrayEntry entry) => HasRule(entry.Path) || HasIconRule(entry);
+    internal bool IsTemporarilyShown(TrayEntry entry) => IsTemporarilyShown(entry.Path) || individuallyShown.ContainsKey(entry.Key);
+    internal void SetManualVisibility(TrayEntry entry, bool hidden)
+    {
+        if (hidden) individuallyShown.Remove(entry.Key);
+        else if (HasRule(entry)) individuallyShown[entry.Key] = entry;
+    }
     internal bool IsTemporarilyShown(string path) => manuallyShown.Contains(NormalizePath(path));
     internal void SetManualVisibility(string path, bool hidden)
     {
+        foreach (var key in individuallyShown.Where(x => SamePath(x.Value.Path, path)).Select(x => x.Key).ToList()) individuallyShown.Remove(key);
         if (hidden) manuallyShown.Remove(NormalizePath(path));
-        else if (HasRule(path)) manuallyShown.Add(NormalizePath(path));
+        else if (HasRule(path) || Saved.HiddenIcons.Any(x => SamePath(x.Path, path))) manuallyShown.Add(NormalizePath(path));
     }
-    internal void ResetManualVisibility() => manuallyShown.Clear();
+    internal void ResetManualVisibility() { manuallyShown.Clear(); individuallyShown.Clear(); }
+    internal void AddIconRule(TrayEntry entry)
+    {
+        if (HasIconRule(entry)) return;
+        var rule = IconRule.From(entry);
+        Saved.HiddenIcons.Add(rule);
+        try { Save(); } catch { Saved.HiddenIcons.Remove(rule); throw; }
+        individuallyShown.Remove(entry.Key);
+        manuallyShown.Remove(NormalizePath(entry.Path));
+    }
+    internal void RemoveIconRule(IconRule rule)
+    {
+        var previous = Saved.HiddenIcons.ToList();
+        if (!Saved.HiddenIcons.Remove(rule)) return;
+        try { Save(); } catch { Saved.HiddenIcons = previous; throw; }
+    }
     internal void Save()
     {
         File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(Saved, new JsonSerializerOptions { WriteIndented = true }));
@@ -54,7 +89,7 @@ internal sealed class Controller
         if (HasRule(path)) return;
         Saved.HiddenPaths.Add(path);
         try { Save(); } catch { Saved.HiddenPaths.Remove(path); throw; }
-        manuallyShown.Remove(path);
+        SetManualVisibility(path, hidden: true);
     }
     internal void RemoveRule(string path)
     {
@@ -92,9 +127,8 @@ internal sealed class Controller
         foreach (var stale in staleEntries) Saved.Recovery.Remove(stale);
         if (staleEntries.Count > 0) Save();
         if (Saved.RulesPaused) return;
-        var paths = Saved.HiddenPaths.Select(NormalizePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var errors = new List<string>();
-        foreach (var entry in entries.Where(x => paths.Contains(NormalizePath(x.Path)) && !IsTemporarilyShown(x.Path)).DistinctBy(x => x.Key))
+        foreach (var entry in entries.Where(x => HasRule(x) && !IsTemporarilyShown(x)).DistinctBy(x => x.Key))
             try { Hide(entry); } catch (Exception ex) { errors.Add(ex.Message); }
         if (errors.Count > 0) throw new IOException(string.Join(Environment.NewLine, errors));
     }
