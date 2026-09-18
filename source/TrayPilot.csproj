@@ -8,6 +8,10 @@
   <ItemGroup>
     <EmbeddedResource Include="languages\en-US.json" LogicalName="TrayPilot.languages.en-US.json" />
     <Content Include="languages\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="native\bin\TrayPilot.Xaml.dll" Link="TrayPilot.Xaml.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
+  <Target Name="BuildTaskbarHelper" BeforeTargets="PrepareForBuild" Inputs="native\TrayPilot.Xaml.cpp;native\build.ps1" Outputs="native\bin\TrayPilot.Xaml.dll">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\native\build.ps1&quot;" />
+  </Target>
   <Import Project="GitVersion.targets" />
 </Project>

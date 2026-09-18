@@ -27,7 +27,7 @@ Hidden icons disappear from both the taskbar and its overflow menu; the applicat
 | Search | Filter by application name, process or path |
 | List / Grid | Switch layouts while preserving the search and selection |
 
-Hidden items have faded icons and text. Rule members display **✓ Matched** in the list and a corner badge in the grid, independently of their current visibility. Both layouts support multiple selection, tooltips and double-click actions. Only the hovered item receives a bright blue highlight.
+Hidden items have faded icons and text. Rule members display **✓ Matched** in the list and a corner badge in the grid, independently of their current visibility. Both layouts support multiple selection, tooltips and double-click actions. Selected items retain a blue background and white text, distinct from hover. Grid selections also have a border and check mark.
 
 **Properties** presents process, icon and file-version information in a read-only table. Select rows and choose **Copy information**, or copy all information when no rows are selected.
 
@@ -35,9 +35,9 @@ Hidden items have faded icons and text. Rule members display **✓ Matched** in 
 
 ## Hide rules and restoration
 
-Application rules match full executable paths, ignoring case and path-separator differences. Existing rules retain this scope. Individual icon rules match the path and GUID, or UID plus window class, so they survive process restarts. Instances sharing the same icon identifier also match; changing identifiers requires a new rule.
+Rules support application-wide and individual-icon scopes. Application rules match full executable paths, ignoring case and path-separator differences. Existing rules retain this scope. Individual icon rules match the path and GUID, or UID plus window class, so they survive process restarts. Instances sharing the same icon identifier also match; changing identifiers requires a new rule.
 
-Multiple icons for one application display their identifiers and PIDs. Double-click, the individual context-menu toggle, and Hide/Restore selected affect only the chosen icons. To replace an existing application rule with an individual rule, remove the application rule from **Hide rules**, then choose **Auto-hide only this icon** on the desired icon. Multi-icon applications also expose individual controls in the tray submenu.
+Multiple icons for one application display their identifiers and PIDs. Double-click, the individual context-menu toggle, and Hide/Restore selected affect only the chosen icons. To replace an existing application rule with an individual rule, remove the application rule from **Hide rules**, then choose **Auto-hide only this icon** on the desired icon.
 
 | Command | Effect on icons and rules |
 | --- | --- |
@@ -61,7 +61,7 @@ Refresh preserves search text, focus, caret / text selection and existing item s
 Left-click or double-click TrayPilot's tray icon to open the main window; right-click for quick controls.
 
 - Quick controls list detected applications independently of the main search filter, with up to 10 applications per page.
-- A check mark means all tray icons for that application are shown. Applications with multiple icons open a submenu with individual toggles and an **All icons for this application** toggle.
+- A check mark means all tray icons for that application are shown; an unchecked entry means at least one is hidden. Applications with multiple icons open a submenu with individual toggles and an **All icons for this application** toggle.
 - Use **Previous page / Next page** or the mouse wheel to navigate. Scrolling stops at either end.
 - Every page retains the **TrayPilot (this application)** visibility toggle. Its icon can also be toggled in Settings. Run the executable again to reopen the existing window when its icon is hidden.
 - The menu also provides **Refresh, Start with Windows, Settings, About and Exit**. About displays the version, operating system, executable path, settings folder and language folder.
@@ -69,6 +69,14 @@ Left-click or double-click TrayPilot's tray icon to open the main window; right-
 **Keep running in the tray when the window is closed** is enabled by default; active rules continue to run in the background. Disable this setting to restore icons and exit when closing the window.
 
 **Start with Windows** is off by default. Enable it by saving Settings or toggle it immediately in the tray menu. It starts TrayPilot when the current user signs in, without administrator permissions. Startup launches stay in the tray unless TrayPilot's own icon is disabled, in which case the main window opens. Manual launches open the main window. Disabling removes the startup entry; re-enable it from the new location after moving the executable.
+
+## System icons
+
+Open **System icons** from the top bar or tray menu to directly hide or restore the primary taskbar's volume, network, battery, clock, microphone, location, Studio Effects, Recall, language bar, supplementary language icons, notification bell and Show desktop controls. The implementation draws on Windhawk's [Taskbar tray system icon tweaks](https://github.com/ramensoftware/windhawk-mods/blob/main/mods/taskbar-tray-system-icon-tweaks.wh.cpp).
+
+Double-click a row to toggle visibility, use its context menu, or choose **Hide selected** / **Restore selected**. States are read from actual controls. Absent controls can be queued for hiding when they appear. When microphone and location share one indicator, both must be requested to hide it. Changes apply immediately for the current run. Exit or process termination restores their original state. **Restore all** and **Show all** also clear current system-icon hiding. TrayPilot attempts to reconnect after Explorer restarts and reapply active requests. System-icon choices are not saved across TrayPilot restarts or added to application hide rules.
+
+The first connection may take time to download the matching taskbar.dll symbols from Microsoft's symbol server; subsequent connections use the cache. Keep `TrayPilot.Xaml.dll` beside the executable. This implementation targets the primary taskbar on Windows 11 x64 and may need updates after Windows changes. Secondary-taskbar clocks and ARM64 are unverified. Volume, network, clock, language bar, supplementary language icons and Show desktop passed individual, combined and crash-restoration checks on the current desktop. Other categories were absent and still need testing on a desktop displaying them.
 
 ## Hotkeys, appearance and language
 
@@ -121,33 +129,17 @@ TrayPilot does not modify other applications' settings or write to Windows tray 
 This project is a prototype targeting **Windows 11 25H2**. Other Windows versions, future patches and unusual applications require validation on the actual system.
 
 - Icons come from the Windows cache, then the executable, then a generic fallback. Cached icons and tooltips may be stale. Names mainly come from executable file descriptions, so scripts may display their host application's name.
-- Explorer's built-in volume, network, battery and clock controls are outside the managed scope.
+- Explorer's built-in controls have a separate **System icons** control dialog; see its compatibility and activation limitations above.
 - Missing tray records, unmatched paths, protected processes and special implementations may prevent discovery or control.
 
 ## Build and diagnostics
 
 ### Local build
 
-On Windows, install the .NET 8 SDK or a newer SDK supporting `net8.0-windows`, then run from the repository root:
+On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK, together with the .NET 8 SDK or a newer SDK supporting `net8.0-windows`, then run from the repository root:
 
 ```powershell
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-The output includes `app/TrayPilot.exe` and the separate `app/languages/` folder. Source code is under `source/`, using C#, Windows Forms and Win32 APIs.
-
-Run diagnostics in a signed-in Windows desktop session and wait for each process to finish:
-
-```powershell
-Start-Process .\app\TrayPilot.exe -ArgumentList '--scan', '.\scan.json' -Wait
-Start-Process .\app\TrayPilot.exe -ArgumentList '--self-test', '.\test-report.txt' -Wait
-Start-Process .\app\TrayPilot.exe -ArgumentList '--startup-test', '.\test-report-startup.txt' -Wait
-```
-
-- `--scan` writes discovered tray records to JSON, including process paths and tooltips.
-- `--self-test` uses a separate test process, isolated configuration and test registry paths to check UID/GUID discovery, hiding and restoration, rule persistence, process identity, UI interaction, languages, hotkeys and startup behavior.
-- `--startup-test` checks startup registration and launch behavior separately.
-- `--icon-selection-test` checks individual control, persistent UID/GUID rules, temporary restoration and matching after process restarts using a separate two-icon test application.
-- `--verify-task-manager` requires Task Manager to be running. It uses isolated settings to verify discovery of both the cached and live CPU icons, rule-based hiding and rediscovery, then restores their original visibility.
-
-Reports are generated by these commands and are not committed with the source. Use results generated on your current system when assessing compatibility.
+The output includes `app/TrayPilot.exe`, `app/TrayPilot.Xaml.dll` and `app/languages/`. Keep the complete directory at runtime. Sources are under `source/`, using C#, Windows Forms and Win32 APIs.

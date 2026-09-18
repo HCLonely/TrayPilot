@@ -75,10 +75,9 @@ internal static class Scanner
         }
         var result = new Dictionary<string, TrayEntry>();
         using var root = Registry.CurrentUser.OpenSubKey(@"Control Panel\NotifyIconSettings");
-        if (root == null) return new();
-        foreach (var subkey in root.GetSubKeyNames())
+        foreach (var subkey in root?.GetSubKeyNames() ?? Array.Empty<string>())
         {
-            using var key = root.OpenSubKey(subkey);
+            using var key = root!.OpenSubKey(subkey);
             if (key == null) continue;
             var path = ExpandPath(key.GetValue("ExecutablePath") as string ?? "");
             Guid.TryParse(key.GetValue("IconGuid") as string, out var guid);
@@ -114,6 +113,22 @@ internal static class Scanner
                     result[entry.Key] = entry with { State = state };
                 }
                 if (guid != Guid.Empty && result.ContainsKey(guid.ToString())) break;
+            }
+        }
+        // This system icon can be live even when its Windows cache is absent.
+        // Probe only its known GUID and actual shell host; do not expose arbitrary
+        // Explorer controls as ordinary notification icons.
+        string explorer = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+        if (!result.ContainsKey(HardwareRemovalGuid.ToString()) && owners.TryGetValue(explorer, out var shellOwners))
+        {
+            foreach (var owner in shellOwners.Where(x => Native.WindowClass(x.Window) == "SystemTray_Main"))
+            {
+                var entry = new TrayEntry { Path = explorer, Name = L.T("safelyRemoveHardware"),
+                    Window = owner.Window, Pid = owner.Pid, Started = owner.Start, Guid = HardwareRemovalGuid };
+                int state = Native.State(entry);
+                if (state is not (0 or 1)) continue;
+                result[entry.Key] = entry with { State = state };
+                break;
             }
         }
         return result.Values.OrderBy(x => x.Name).ThenBy(x => x.Pid).ToList();

@@ -57,6 +57,7 @@ internal sealed partial class MainForm
         for (int i = 0; i < columnCaptions.Count; i++) list.Columns[i].Text = L.T(columnCaptions[i]);
         while (menuBar.Items.Count > 0) { var item = menuBar.Items[0]; menuBar.Items.RemoveAt(0); item.Dispose(); }
         menuBar.Items.Add(L.T("hideRules"), null, (_, _) => EditRules());
+        menuBar.Items.Add(L.T("systemIcons"), null, (_, _) => ShowSystemIcons());
         menuBar.Items.Add(L.T("settings"), null, (_, _) => ShowSettings());
         menuBar.Items.Add(L.T("about"), null, (_, _) => ShowAbout());
         menuBar.Items.Add(L.T("exit"), null, (_, _) => RequestExit());
@@ -150,6 +151,7 @@ internal sealed partial class MainForm
             catch (Exception ex) { MessageBox.Show(ex.Message, L.T("startupSettingFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
         trayMenu.Items.Add(autoStart);
+        trayMenu.Items.Add(L.T("systemIcons"), null, (_, _) => ShowSystemIcons());
         trayMenu.Items.Add(L.T("settings"), null, (_, _) => ShowSettings());
         trayMenu.Items.Add(L.T("about"), null, (_, _) => ShowAbout());
         trayMenu.Items.Add(new ToolStripSeparator());

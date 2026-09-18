@@ -27,7 +27,7 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 | 搜索 | 按软件名称、进程或路径过滤 |
 | 列表 / 网格 | 切换布局，保留搜索条件与选中项 |
 
-隐藏项的图标和文字淡化显示。规则项在列表中显示 **✓ 命中**，在网格中显示角标；规则标记与当前显示状态相互独立。两种布局均支持多选、悬浮详情及双击操作，强蓝色高亮仅用于鼠标所在项。
+隐藏项的图标和文字淡化显示。规则项在列表中显示 **✓ 命中**，在网格中显示角标；规则标记与当前显示状态相互独立。两种布局均支持多选、悬浮详情及双击操作，选中项持续显示蓝底白字，与鼠标悬停高亮区分；网格选中项另有边框和勾选标记。
 
 **属性** 使用只读表格展示进程、图标和文件版本等信息。选择行后可点击 **复制信息**；未选择时复制全部信息。
 
@@ -69,6 +69,14 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 **关闭窗口后保留在托盘运行** 默认开启，后台继续执行未暂停的规则；在设置中关闭后，关闭窗口会恢复图标并退出。
 
 **开机启动** 默认关闭，可在设置中保存启用，也可在托盘菜单中立即切换。启用后在当前用户登录 Windows 时启动，无需管理员权限；默认进入托盘后台，若自身托盘图标已关闭，则显示主界面。手动启动仍打开主界面。禁用会移除启动项，移动 EXE 后请从新位置重新启用。
+
+## 系统图标
+
+顶栏及托盘菜单中的 **系统图标** 可直接隐藏 / 恢复主任务栏的音量、网络、电池、时钟、麦克风、位置、Studio Effects、Recall、语言栏、语言栏附加图标、通知铃铛和“显示桌面”按钮。实现参考 Windhawk 的 [Taskbar tray system icon tweaks](https://github.com/ramensoftware/windhawk-mods/blob/main/mods/taskbar-tray-system-icon-tweaks.wh.cpp)。
+
+双击项目切换显示 / 隐藏，也可使用右键菜单或 **隐藏选中** / **恢复选中**。状态来自实际任务栏控件；未出现的控件也可预先设为隐藏，出现后自动应用。麦克风与位置共用一个指示图标时，需同时隐藏两项。修改即时生效，当前运行期间保持，退出或进程意外结束后恢复原状态。“全部恢复”和“显示所有”也会撤销本次系统图标隐藏。Explorer 重启后，程序会尝试重新连接并应用本次请求。系统图标选择暂不跨 TrayPilot 重启保存，也不加入普通软件隐藏规则。
+
+首次连接需要从微软符号服务器获取当前 taskbar.dll 对应符号，可能等待较久；后续使用本地缓存。运行包必须保留 `TrayPilot.Xaml.dll`。当前实现针对 Windows 11 x64 主任务栏，未来系统更新可能需要适配；副屏时钟和 ARM64 尚未验证。当前环境已实测音量、网络、时钟、语言栏、语言栏附加图标及“显示桌面”的单独隐藏、恢复、组合隐藏和异常退出恢复；其余控件当前未出现，仍待实机验证。
 
 ## 快捷键、外观与语言
 
@@ -121,33 +129,17 @@ Windows 11 托盘图标管理工具：隐藏不需要的图标，同时让软件
 本项目是面向 **Windows 11 25H2** 的原型。其他系统版本、未来 Windows 补丁及特殊软件的兼容性需要实际验证。
 
 - 优先使用 Windows 缓存图标，依次回退到 EXE 图标、通用图标。缓存图标及提示可能不是实时内容；名称主要来自 EXE 文件描述，脚本可能显示宿主名称。
-- 音量、网络、电池、时钟等 Explorer 内建控件不在管理范围内。
+- 音量、网络、电池、时钟等 Explorer 内建控件通过独立的 **系统图标** 窗口直接控制，兼容性及生效方式见上文。
 - 无托盘记录、路径匹配失败、受保护进程或特殊实现可能无法识别或控制。
 
 ## 从源码构建与诊断
 
 ### 本地构建
 
-在 Windows 上安装 .NET 8 SDK 或支持 `net8.0-windows` 的更新 SDK，在仓库根目录执行：
+在 Windows 上安装 Visual Studio 2022 C++ x64 构建工具和 Windows SDK，以及 .NET 8 SDK 或支持 `net8.0-windows` 的更新 SDK，在仓库根目录执行：
 
 ```powershell
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-输出为 `app/TrayPilot.exe` 和独立的 `app/languages/` 语言包目录。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。
-
-在已登录的 Windows 桌面会话中运行诊断，并等待进程结束：
-
-```powershell
-Start-Process .\app\TrayPilot.exe -ArgumentList '--scan', '.\scan.json' -Wait
-Start-Process .\app\TrayPilot.exe -ArgumentList '--self-test', '.\test-report.txt' -Wait
-Start-Process .\app\TrayPilot.exe -ArgumentList '--startup-test', '.\test-report-startup.txt' -Wait
-```
-
-- `--scan`：将当前识别到的托盘记录写入 JSON，包含进程路径和提示等信息。
-- `--self-test`：使用独立测试进程、隔离配置及测试注册表路径，检查 UID/GUID 图标识别、隐藏恢复、规则持久化、进程身份校验、界面交互、语言、快捷键及开机启动等行为。
-- `--startup-test`：单独检查开机启动注册和启动行为。
-- `--icon-selection-test`：使用独立双图标进程，检查单图标操作、UID/GUID 规则持久化、临时恢复及进程重启后的匹配。
-- `--verify-task-manager`：需先打开任务管理器；使用隔离配置验证缓存图标及实时 CPU 图标的识别、规则隐藏、刷新后恢复，并还原测试前的显示状态。
-
-报告由命令运行后生成，不随源码提交；请以当前系统上生成的结果为准。
+输出包括 `app/TrayPilot.exe`、`app/TrayPilot.Xaml.dll` 和 `app/languages/`。运行时请保留整个目录。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。

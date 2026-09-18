@@ -30,7 +30,11 @@ internal sealed partial class MainForm
             try
             {
                 if (hideMatches) { controller.ResetManualVisibility(); controller.Apply(entries); }
-                else foreach (var entry in entries.Where(x => x.State == 1)) controller.Show(entry);
+                else
+                {
+                    foreach (var entry in entries.Where(x => x.State == 1)) controller.Show(entry);
+                    RestoreLiveSystemIcons();
+                }
             }
             finally { UpdateEntryStates(); }
             UpdateStatus();

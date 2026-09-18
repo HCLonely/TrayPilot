@@ -42,8 +42,8 @@ internal sealed class TrayListView : ListView
         TextRenderer.DrawText(e.Graphics, e.Header!.Text, Font, Rectangle.Inflate(e.Bounds, -10, 0), UiTheme.Muted,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
-    Color Background(ListViewItem item) => item == hovered ? UiTheme.Highlight : item.Selected ? UiTheme.Header : View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
-    Color Foreground(ListViewItem item) => item == hovered ? Color.White : item.Tag is TrayEntry entry && entry.State == 1 ? UiTheme.Muted : UiTheme.Ink;
+    Color Background(ListViewItem item) => item.Selected ? UiTheme.Selection : item == hovered ? UiTheme.Highlight : View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
+    Color Foreground(ListViewItem item) => item.Selected || item == hovered ? Color.White : item.Tag is TrayEntry entry && entry.State == 1 ? UiTheme.Muted : UiTheme.Ink;
     protected override void OnDrawItem(DrawListViewItemEventArgs e)
     {
         if (e.Item == null) return;
@@ -65,8 +65,11 @@ internal sealed class TrayListView : ListView
         {
             var bounds = Cell(item);
             if (!bounds.IntersectsWith(ClientRectangle) || !graphics.IsVisible(Rectangle.Inflate(bounds, 1, 1))) continue;
-            using var fill = new SolidBrush(Background(item)); using var border = new Pen(item == hovered ? UiTheme.Highlight : item.Selected ? UiTheme.Header : UiTheme.Border);
+            using var fill = new SolidBrush(Background(item)); using var border = new Pen(item.Selected ? UiTheme.SelectionBorder : item == hovered ? UiTheme.Highlight : UiTheme.Border, item.Selected ? 2 * DeviceDpi / 96f : 1);
             graphics.FillRectangle(fill, bounds); graphics.DrawRectangle(border, bounds);
+            if (item.Selected)
+                TextRenderer.DrawText(graphics, "✓", Font, new Rectangle(bounds.Left + 3, bounds.Top + 3, 20, 20), Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             if (LargeImageList != null && item.ImageIndex >= 0 && item.ImageIndex < LargeImageList.Images.Count)
             {
                 var size = LargeImageList.ImageSize;
@@ -136,12 +139,29 @@ internal sealed class TrayListView : ListView
     {
         if (e.Item == null || e.SubItem == null) return;
         using var fill = new SolidBrush(Background(e.Item)); e.Graphics.FillRectangle(fill, e.Bounds);
+        if (e.Item.Selected && e.ColumnIndex == 0)
+        {
+            using var marker = new SolidBrush(UiTheme.SelectionBorder);
+            e.Graphics.FillRectangle(marker, e.Bounds.Left, e.Bounds.Top, Math.Max(4, 4 * DeviceDpi / 96), e.Bounds.Height);
+        }
         var text = Rectangle.Inflate(e.Bounds, -8, 0);
         if (e.ColumnIndex == 0 && SmallImageList != null && e.Item.ImageIndex >= 0 && e.Item.ImageIndex < SmallImageList.Images.Count)
         {
             var size = SmallImageList.ImageSize;
-            if (UiTheme.Dark) { using var plate = new SolidBrush(Color.FromArgb(225, 232, 243)); e.Graphics.FillRectangle(plate, text.Left, text.Top + (text.Height - size.Height) / 2, size.Width, size.Height); }
-            SmallImageList.Draw(e.Graphics, text.Left, text.Top + (text.Height - size.Height) / 2, e.Item.ImageIndex);
+            if (e.Item.Tag is int)
+            {
+                using var attributes = new System.Drawing.Imaging.ImageAttributes();
+                var color = Foreground(e.Item);
+                attributes.SetColorMatrix(new System.Drawing.Imaging.ColorMatrix { Matrix00 = color.R / 255f, Matrix11 = color.G / 255f, Matrix22 = color.B / 255f });
+                using var icon = SmallImageList.Images[e.Item.ImageIndex];
+                e.Graphics.DrawImage(icon, new Rectangle(text.Left, text.Top + (text.Height - size.Height) / 2, size.Width, size.Height),
+                    0, 0, size.Width, size.Height, GraphicsUnit.Pixel, attributes);
+            }
+            else
+            {
+                if (UiTheme.Dark) { using var plate = new SolidBrush(Color.FromArgb(225, 232, 243)); e.Graphics.FillRectangle(plate, text.Left, text.Top + (text.Height - size.Height) / 2, size.Width, size.Height); }
+                SmallImageList.Draw(e.Graphics, text.Left, text.Top + (text.Height - size.Height) / 2, e.Item.ImageIndex);
+            }
             text.X += size.Width + 8; text.Width -= size.Width + 8;
         }
         TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Font, text, Foreground(e.Item), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);

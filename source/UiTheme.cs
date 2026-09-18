@@ -12,6 +12,8 @@ internal static class UiTheme
     internal static Color Muted => Dark ? Color.FromArgb(156, 171, 193) : Color.FromArgb(106, 119, 139);
     internal static Color Accent => Dark ? Color.FromArgb(124, 165, 255) : Color.FromArgb(53, 92, 198);
     internal static Color Highlight => Color.FromArgb(42, 96, 204);
+    internal static Color Selection => Dark ? Color.FromArgb(38, 77, 148) : Color.FromArgb(30, 72, 160);
+    internal static Color SelectionBorder => Dark ? Color.FromArgb(156, 196, 255) : Color.FromArgb(16, 48, 115);
     internal static Color Border => Dark ? Color.FromArgb(62, 74, 94) : Color.FromArgb(221, 228, 239);
     internal static Color Header => Dark ? Color.FromArgb(39, 48, 63) : Color.FromArgb(239, 243, 249);
     internal static Color Stripe => Dark ? Color.FromArgb(34, 42, 55) : Color.FromArgb(249, 251, 254);

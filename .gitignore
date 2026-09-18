@@ -1,6 +1,7 @@
 /app/
 /source/bin/
 /source/obj/
+/source/native/bin/
 /tests/**/bin/
 /tests/**/obj/
 /integration-*/

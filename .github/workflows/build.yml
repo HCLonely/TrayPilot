@@ -11,7 +11,8 @@ permissions:
 jobs:
   build:
     name: Windows x64 / ${{ matrix.package }}
-    runs-on: windows-latest
+    # Keep the native helper on the documented VS 2022 / Windows SDK toolchain.
+    runs-on: windows-2022
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -37,6 +38,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Build native taskbar helper
+        run: ./source/native/build.ps1
+
       - name: Publish application
         run: >-
           dotnet publish ./source/TrayPilot.csproj
@@ -54,8 +58,19 @@ jobs:
           PACKAGE: ${{ matrix.package }}
         run: |
           $publishDir = Join-Path ./publish $env:PACKAGE
-          if (-not (Test-Path (Join-Path $publishDir 'TrayPilot.exe') -PathType Leaf)) {
-            throw 'The published executable is missing.'
+          foreach ($required in @('TrayPilot.exe', 'TrayPilot.Xaml.dll')) {
+            if (-not (Test-Path (Join-Path $publishDir $required) -PathType Leaf)) {
+              throw "Missing package file: $required"
+            }
+          }
+          # Loading and checking exports needs no Explorer or interactive taskbar.
+          $helper = [System.Runtime.InteropServices.NativeLibrary]::Load((Resolve-Path (Join-Path $publishDir 'TrayPilot.Xaml.dll')).Path)
+          try {
+            foreach ($export in @('Attach', 'IdentifyGlyph', 'DllGetClassObject', 'DllCanUnloadNow')) {
+              [void][System.Runtime.InteropServices.NativeLibrary]::GetExport($helper, $export)
+            }
+          } finally {
+            [System.Runtime.InteropServices.NativeLibrary]::Free($helper)
           }
           foreach ($language in Get-ChildItem ./source/languages -Filter *.json) {
             $publishedLanguage = Join-Path $publishDir "languages/$($language.Name)"
@@ -101,7 +116,7 @@ jobs:
           foreach ($package in @('full', 'lite')) {
             $name = "TrayPilot-win-x64-$package"
             $packageDir = Join-Path ./packages $name
-            foreach ($required in @('TrayPilot.exe', 'languages/en-US.json', 'languages/zh-CN.json')) {
+            foreach ($required in @('TrayPilot.exe', 'TrayPilot.Xaml.dll', 'languages/en-US.json', 'languages/zh-CN.json')) {
               if (-not (Test-Path (Join-Path $packageDir $required) -PathType Leaf)) {
                 throw "Missing release file: $name/$required"
               }

@@ -48,7 +48,7 @@ internal sealed partial class MainForm : Form
         searchRow.Controls.Add(autoRefresh, 2, 0); layout.Controls.Add(searchRow, 0, 2);
         AddButton("hideSelected", () => ChangeSelected(true)); AddButton("restoreSelected", () => ChangeSelected(false));
         var hideRules = UiTheme.Button("hideMatchingIcons"); hideRules.Click += async (_, _) => await ApplyVisibilityPresetAsync(true); actions.Controls.Add(hideRules);
-        AddButton("restoreAll", () => RunAction(() => controller.RestoreManaged(temporarilyShow: true)));
+        AddButton("restoreAll", () => RunAction(() => { controller.RestoreManaged(temporarilyShow: true); RestoreLiveSystemIcons(); }));
         var commandRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         commandRow.ColumnStyles.Add(new(SizeType.Percent, 100)); commandRow.ColumnStyles.Add(new(SizeType.AutoSize));
         actions.Margin = Padding.Empty; commandRow.Controls.Add(actions, 0, 0);
@@ -100,6 +100,7 @@ internal sealed partial class MainForm : Form
             catch (Exception ex) { e.Cancel = true; exitRequested = false; OpenMainWindow(); MessageBox.Show(this, ex.Message + "\n" + L.T("recoveryRecordsRetainedMessage"), L.T("restoreIncomplete")); UpdateTimer(); }
         };
         FormClosed += (_, _) => timer.Stop();
+        if (initialize) SetupSystemIconWatch();
     }
     void UpdateTimer() => timer.Enabled = autoRefresh.Checked && !closing && !IsDisposed;
     void UpdateStatus() => status.Text = L.F("iconStatisticsStatus", entries.Count, controller.Saved.HiddenPaths.Count + controller.Saved.HiddenIcons.Count,
@@ -357,6 +358,8 @@ internal sealed partial class MainForm : Form
     {
         if (disposing)
         {
+            systemIconSession?.Dispose(); systemIconSession = null;
+            systemIconWatch.Dispose();
             timer.Dispose();
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnSystemThemeChanged;
             showAllHotkey?.Dispose(); hideRulesHotkey?.Dispose(); mainHotkey?.Dispose();

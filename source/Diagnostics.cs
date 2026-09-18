@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace TrayPilot;
-internal static class Diagnostics
+internal static partial class Diagnostics
 {
     internal static int Run(string[] args)
     {
@@ -20,24 +20,65 @@ internal static class Diagnostics
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
+            if (args[0] == "--system-icons-live-test" && args.Length == 2) return TestLiveSystemIcons(args[1]);
+            if (args[0] == "--system-icons-ui-test" && args.Length == 2) return TestSystemIconUi(args[1]);
+            if (args[0] == "--system-icons-crash-host" && args.Length == 2)
+            {
+                using var session = new SystemIconSession();
+                for (int i = 0; i < 80 && session.Ticks == 0; i++) Thread.Sleep(100);
+                if (session.Ticks == 0 || session.Error != 0) return 1;
+                int request = session.Set(session.Found);
+                for (int i = 0; i < 80 && session.Acknowledged != request; i++) Thread.Sleep(100);
+                File.WriteAllText(args[1], session.Hidden.ToString());
+                Thread.Sleep(30000); return 0;
+            }
+            if (args[0] == "--system-icons-visual-test" && args.Length == 2)
+            {
+                using var session = new SystemIconSession();
+                for (int i = 0; i < 80 && session.Ticks == 0 && session.Error == 0; i++) Thread.Sleep(100);
+                if (session.Ticks == 0) throw new IOException("No taskbar controls");
+                void Capture(string suffix)
+                {
+                    var window = Native.FindWindowExW(0, 0, "Shell_TrayWnd", null);
+                    if (!Native.GetWindowRect(window, out var rect)) throw new IOException("Taskbar bounds unavailable");
+                    using var bitmap = new Bitmap(rect.Right - rect.Left, rect.Bottom - rect.Top);
+                    using var graphics = Graphics.FromImage(bitmap);
+                    graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, bitmap.Size);
+                    bitmap.Save(args[1] + suffix + ".png");
+                }
+                Capture("-before");
+                try { session.Set(session.Found); Thread.Sleep(1000); Capture("-hidden"); }
+                finally { session.Set(0); Thread.Sleep(1000); Capture("-restored"); }
+                return 0;
+            }
+            if (args[0] == "--system-icons-probe" && args.Length == 2)
+            {
+                using var session = new SystemIconSession();
+                for (int i = 0; i < 80 && session.Ticks == 0 && session.Error == 0; i++) Thread.Sleep(250);
+                File.WriteAllText(args[1], $"PID={session.Pid} Found={session.Found} Hidden={session.Hidden} Ticks={session.Ticks} Error=0x{session.Error:X8}\n{session.DebugInfo()}");
+                return session.Ticks > 0 && session.Error == 0 ? 0 : 1;
+            }
             if (args[0] == "--startup-test" && args.Length == 2) return TestStartup(args[1]);
             if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
             if (args[0] == "--verify-task-manager" && args.Length == 2) return TestTaskManager(args[1]);
             if (args[0] == "--icon-selection-test" && args.Length == 2) return TestIconSelection(args[1]);
-            if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en")
+            if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en" or "--preview-system-icons-en" or "--preview-system-icons-cn")
             {
                 const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "preview-state");
                 var previewController = new Controller(folder); previewController.Saved.Language = "en-US";
+                if (args[0] == "--preview-system-icons-cn") previewController.Saved.Language = "zh-CN";
                 if (args[0] == "--preview-rules-en") previewController.Saved.HiddenPaths.AddRange(Scanner.Scan().Select(x => x.Path).Distinct().Take(4));
                 if (darkPreview) previewController.Saved.Theme = "dark";
                 if (markedPreview) { previewController.Saved.HiddenPaths = Scanner.Scan().Select(x => x.Path).Distinct().Take(3).ToList(); previewController.Saved.RulesPaused = true; }
                 using var form = new MainForm(previewController, initialize: false);
                 using var capture = new System.Windows.Forms.Timer { Interval = 500 };
+                int captureAttempts = 0;
                 capture.Tick += (_, _) =>
                 {
                     var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(x => x != form);
                     if (dialog == null) return;
+                    if (args[0].StartsWith("--preview-system-icons-") && form.systemIconSessionForDiagnostics == null && ++captureAttempts < 30) return;
                     capture.Stop(); using var image = new Bitmap(dialog.Width, dialog.Height);
                     dialog.DrawToBitmap(image, new Rectangle(Point.Empty, dialog.Size)); image.Save(args[1]); dialog.Close();
                 };
@@ -46,7 +87,7 @@ internal static class Diagnostics
                     capture.Start();
                     if (args[0] == "--preview-properties-en")
                         typeof(MainForm).GetMethod("ShowProperties", flags)!.Invoke(form, new object[] { Scanner.Scan().First() });
-                    else typeof(MainForm).GetMethod(args[0] == "--preview-settings-en" ? "ShowSettings" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowAbout", flags)!.Invoke(form, null);
+                    else typeof(MainForm).GetMethod(args[0].StartsWith("--preview-system-icons-") ? "ShowSystemIcons" : args[0] == "--preview-settings-en" ? "ShowSettings" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowAbout", flags)!.Invoke(form, null);
                     form.RequestExit();
                 };
                 Application.Run(form); return 0;
