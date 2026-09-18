@@ -7,7 +7,7 @@ A Windows 11 tray icon manager that hides unwanted icons while keeping their app
 ## Quick start
 
 1. Use a published application package, or build from source as described below.
-2. Run `app/TrayPilot.exe` to open the main window. The self-contained Windows x64 build requires no separate .NET installation or Windhawk.
+2. Run `TrayPilot.exe` to open the main window.
 3. Double-click an icon or row to toggle only that icon. For persistent hiding, right-click and choose **Auto-hide only this icon**. **All icons for this application** provides application-wide controls.
 4. Closing the window keeps TrayPilot running in the tray by default. Choose **Exit** to restore icons hidden by TrayPilot and quit.
 
@@ -88,7 +88,7 @@ Hotkeys remain available while the main window is hidden. The former quick-contr
 
 ### Add a language pack
 
-Runtime language packs are in `app/languages/`; source packs are in `source/languages/`. They use UTF-8 JSON:
+Runtime language packs are in `languages/`; source packs are in `source/languages/`. They use UTF-8 JSON:
 
 ```json
 {
