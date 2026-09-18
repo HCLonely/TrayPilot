@@ -18,6 +18,7 @@ internal sealed partial class MainForm : Form
     internal MainForm(Controller controller, bool initialize = true, Func<List<TrayEntry>>? visibilityScanner = null, StartupRegistration? startup = null, bool startInTray = false)
     {
         this.controller = controller;
+        systemIconsRequested = controller.Saved.HiddenSystemIcons & SystemIconCatalog.All;
         this.startup = startup ?? new StartupRegistration();
         this.visibilityScanner = visibilityScanner ?? Scanner.Scan;
         L.Set(controller.Saved.Language); UiTheme.Set(controller.Saved.Theme);

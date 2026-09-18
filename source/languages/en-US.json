@@ -168,7 +168,7 @@
     "systemMicrophone": "Microphone",
     "systemLanguageSupplementary": "Language supplementary icons",
     "systemNativeWaiting": "Will hide when it appears",
-    "systemLiveHelp": "Double-click a row or use its context menu to hide / restore. Absent icons can be set to hide when they appear. Changes last for this run and are restored on exit. Microphone and location share an indicator on some Windows versions; hide both to remove it.",
+    "systemLiveHelp": "Double-click a row or use its context menu to hide / restore. Absent icons can be set to hide when they appear. Choices are saved, restored on exit and reapplied at startup. Microphone and location share an indicator on some Windows versions; hide both to remove it.",
     "systemLocation": "Location / GPS",
     "systemBell": "Notification bell",
     "systemSharedIndicator": "Shared indicator: hide microphone and location together",

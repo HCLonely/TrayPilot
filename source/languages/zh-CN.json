@@ -168,7 +168,7 @@
     "systemMicrophone": "麦克风",
     "systemLanguageSupplementary": "语言栏附加图标",
     "systemNativeWaiting": "出现后自动隐藏",
-    "systemLiveHelp": "双击项目或使用右键菜单隐藏 / 恢复。未出现的图标也可预设隐藏；本次运行期间保持，退出后恢复。部分 Windows 版本共用麦克风和定位图标，需同时隐藏两项。",
+    "systemLiveHelp": "双击项目或使用右键菜单隐藏 / 恢复。未出现的图标也可预设隐藏；选择自动保存，退出后恢复，下次启动重新隐藏。部分 Windows 版本共用麦克风和定位图标，需同时隐藏两项。",
     "systemLocation": "定位 / GPS",
     "systemBell": "通知铃铛",
     "systemSharedIndicator": "共享图标：需同时隐藏麦克风和定位",

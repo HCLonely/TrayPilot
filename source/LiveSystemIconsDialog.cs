@@ -5,21 +5,26 @@ internal sealed partial class MainForm
     SystemIconSession? systemIconSession;
     internal SystemIconSession? systemIconSessionForDiagnostics => systemIconSession is { Ticks: > 0 } ? systemIconSession : null;
     bool systemIconsConnecting;
+    bool systemIconsChanging;
     int systemIconsRequested;
     readonly System.Windows.Forms.Timer systemIconWatch = new() { Interval = 5000 };
     void SetupSystemIconWatch()
     {
-        systemIconWatch.Tick += async (_, _) =>
-        {
-            if (systemIconsRequested == 0 || systemIconsConnecting || closing || IsDisposed ||
-                systemIconSession?.Pid == SystemIconSession.ExplorerPid()) return;
-            try { var session = await ConnectSystemIcons(); session.Set(systemIconsRequested); }
-            catch (Exception ex) { if (!IsDisposed) status.Text = ex.Message; }
-        };
+        systemIconWatch.Tick += async (_, _) => await ApplySavedSystemIcons();
+        Shown += async (_, _) => await ApplySavedSystemIcons();
         systemIconWatch.Start();
+    }
+    async Task ApplySavedSystemIcons()
+    {
+        if (systemIconsRequested == 0 || systemIconsConnecting || systemIconsChanging || closing || IsDisposed) return;
+        if (systemIconSession is { Ticks: > 0, Error: 0, IsDisposed: false } current &&
+            current.Pid == SystemIconSession.ExplorerPid() && current.Requested == systemIconsRequested) return;
+        try { var session = await ConnectSystemIcons(); session.Set(systemIconsRequested); }
+        catch (Exception ex) { if (!IsDisposed && !closing) status.Text = ex.Message; }
     }
     void RestoreLiveSystemIcons()
     {
+        controller.SetHiddenSystemIcons(0);
         systemIconsRequested = 0;
         systemIconSession?.Set(0);
     }
@@ -123,6 +128,7 @@ internal sealed partial class MainForm
         {
             if (operating || bit == 0 || !Connected() || systemIconSession is not { } session) return;
             int previous = session.Requested;
+            systemIconsChanging = true;
             operating = true; UpdateRows();
             try
             {
@@ -132,6 +138,7 @@ internal sealed partial class MainForm
                 if (session.Acknowledged != id || session.Error != 0 ||
                     (hidden && (session.Found & bit) != 0 && (session.Hidden & bit) == 0 && !sharedPending))
                     throw new IOException(L.F("systemNativeFailed", $"0x{session.Error:X8}"));
+                controller.SetHiddenSystemIcons(session.Requested);
                 systemIconsRequested = session.Requested;
                 if (!dialog.IsDisposed) state.Text = L.T("systemLiveReady");
             }
@@ -140,7 +147,7 @@ internal sealed partial class MainForm
                 if (!IsDisposed && !closing && ReferenceEquals(systemIconSession, session) && !session.IsDisposed) session.Set(previous);
                 if (!dialog.IsDisposed) state.Text = ex.Message;
             }
-            finally { operating = false; if (!dialog.IsDisposed) UpdateRows(); }
+            finally { systemIconsChanging = false; operating = false; if (!dialog.IsDisposed) UpdateRows(); }
         }
         hide.Click += async (_, _) => await Change(SelectedMask(), true); restore.Click += async (_, _) => await Change(SelectedMask(), false);
         toggleItem.Click += async (_, _) => { int bit = SelectedMask(); await Change(bit, ShouldHide(bit)); };

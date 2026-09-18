@@ -15,6 +15,7 @@ internal sealed class SavedState
     public List<string> HiddenPaths { get; set; } = new();
     public List<IconRule> HiddenIcons { get; set; } = new();
     public List<TrayEntry> Recovery { get; set; } = new();
+    public int HiddenSystemIcons { get; set; }
     public string Language { get; set; } = L.SystemLanguage;
     public bool CloseToTray { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;
@@ -82,6 +83,13 @@ internal sealed class Controller
     {
         File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(Saved, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(file + ".tmp", file, true);
+    }
+    internal void SetHiddenSystemIcons(int mask)
+    {
+        if ((mask & ~SystemIconCatalog.All) != 0) throw new ArgumentOutOfRangeException(nameof(mask));
+        int previous = Saved.HiddenSystemIcons;
+        Saved.HiddenSystemIcons = mask;
+        try { Save(); } catch { Saved.HiddenSystemIcons = previous; throw; }
     }
     internal void AddRule(string path)
     {

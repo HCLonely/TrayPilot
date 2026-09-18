@@ -53,12 +53,16 @@ internal static partial class Diagnostics
                 void DoubleClick(Point point) => typeof(Control).GetMethod("OnMouseDoubleClick", flags)!.Invoke(rows,
                     new object[] { new MouseEventArgs(MouseButtons.Left, 2, point.X, point.Y, 0) });
                 target.Selected = true; target.EnsureVisible(); rows.Focus();
+                for (int i = 0; i < 100 && !hide.Enabled; i++) await Task.Delay(100);
+                Check(hide.Enabled, "Dialog connection completes before interaction");
                 var point = new Point(target.Bounds.Left + 12, target.Bounds.Top + target.Bounds.Height / 2);
                 DoubleClick(point); DoubleClick(point);
                 await AwaitState(bit, true);
                 Check(session.Hidden == (initial | bit), "Double-click hides only the hit row; rapid reentry is ignored");
+                Check(new Controller(folder).Saved.HiddenSystemIcons == bit, "Hide choice is saved immediately");
                 DoubleClick(point); await AwaitState(0, false);
                 Check(session.Hidden == initial, "Second double-click restores the row");
+                Check(new Controller(folder).Saved.HiddenSystemIcons == 0, "Restore choice is saved immediately");
                 var other = rows.Items.Cast<ListViewItem>().First(x => x != target); other.Selected = true;
                 typeof(Control).GetMethod("OnMouseDown", flags)!.Invoke(rows, new object[] { new MouseEventArgs(MouseButtons.Right, 1, point.X, point.Y, 0) });
                 Check(rows.SelectedItems.Count == 1 && rows.SelectedItems[0] == target, "Right-click selects its target instead of the previous row");
@@ -93,9 +97,66 @@ internal static partial class Diagnostics
             driver.Start(); typeof(MainForm).GetMethod("ShowSystemIcons", flags)!.Invoke(form, null); form.RequestExit();
         };
         Application.Run(form);
+        if (failure == null)
+        {
+            try { CheckSystemIconRestart(folder, log); }
+            catch (Exception ex) { failure = ex; }
+        }
         File.WriteAllLines(report, log);
         if (failure != null) throw failure;
         return 0;
+    }
+
+    static void CheckSystemIconRestart(string folder, List<string> log)
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var controller = new Controller(folder);
+        controller.SetHiddenSystemIcons(2 | 4); // Network plus a possibly absent battery indicator.
+        // A failed save must preserve the previous preference in memory and on disk.
+        Directory.CreateDirectory(Path.Combine(folder, "settings.json.tmp"));
+        try
+        {
+            try { controller.SetHiddenSystemIcons(0); throw new Exception("Expected save failure"); }
+            catch (UnauthorizedAccessException) { }
+            if (controller.Saved.HiddenSystemIcons != 6 || new Controller(folder).Saved.HiddenSystemIcons != 6)
+                throw new IOException("Failed save lost the previous preference");
+        }
+        finally { Directory.Delete(Path.Combine(folder, "settings.json.tmp")); }
+        log.Add("PASS Failed preference save preserves memory and disk state");
+        for (int launch = 0; launch < 2; launch++)
+        {
+            using var restarted = new MainForm(new Controller(folder), initialize: false);
+            typeof(MainForm).GetMethod("SetupSystemIconWatch", flags)!.Invoke(restarted, null);
+            using var timer = new System.Windows.Forms.Timer { Interval = 100 };
+            int attempts = 0; bool clearing = false; Exception? error = null;
+            timer.Tick += (_, _) =>
+            {
+                try
+                {
+                    if (++attempts > 300) throw new IOException("Startup preference application timed out");
+                    var session = restarted.systemIconSessionForDiagnostics;
+                    if (session == null || session.Error != 0) return;
+                    if (!clearing && (session.Requested != 6 || (session.Hidden & 2) == 0)) return;
+                    if (launch == 0) { timer.Stop(); restarted.RequestExit(); return; }
+                    if (!clearing)
+                    {
+                        typeof(MainForm).GetMethod("RestoreLiveSystemIcons", flags)!.Invoke(restarted, null);
+                        clearing = true; return;
+                    }
+                    if (session.Requested != 0 || session.Acknowledged == 0 || (session.Hidden & 2) != 0) return;
+                    if (new Controller(folder).Saved.HiddenSystemIcons != 0) throw new IOException("Restore all did not clear saved preferences");
+                    timer.Stop(); restarted.RequestExit();
+                }
+                catch (Exception ex) { error = ex; timer.Stop(); restarted.RequestExit(); }
+            };
+            restarted.Shown += (_, _) => timer.Start();
+            Application.Run(restarted);
+            if (error != null) throw error;
+            if (launch == 0 && new Controller(folder).Saved.HiddenSystemIcons != 6) throw new IOException("Exit discarded hide preferences");
+            Thread.Sleep(500); // Allow the helper's restoration timer to finish before the next session.
+        }
+        log.Add("PASS Startup applies saved icons without opening the system-icons dialog; exit preserves preferences; next launch reapplies them");
+        log.Add("PASS Restore all clears saved system-icon choices");
     }
 
     static void CheckSelectionRendering(string folder, List<string> log)
