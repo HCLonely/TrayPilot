@@ -66,7 +66,7 @@ jobs:
           # Loading and checking exports needs no Explorer or interactive taskbar.
           $helper = [System.Runtime.InteropServices.NativeLibrary]::Load((Resolve-Path (Join-Path $publishDir 'TrayPilot.Xaml.dll')).Path)
           try {
-            foreach ($export in @('Attach', 'IdentifyGlyph', 'DllGetClassObject', 'DllCanUnloadNow')) {
+            foreach ($export in @('Attach', 'AttachWithSymbols', 'IdentifyGlyph', 'DllGetClassObject', 'DllCanUnloadNow')) {
               [void][System.Runtime.InteropServices.NativeLibrary]::GetExport($helper, $export)
             }
           } finally {

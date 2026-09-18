@@ -8,6 +8,9 @@ internal sealed class SystemIconSession : IDisposable
 {
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
     delegate int AttachDelegate(uint pid, [MarshalAs(UnmanagedType.LPWStr)] string mapping);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    delegate int AttachWithSymbolsDelegate(uint pid, [MarshalAs(UnmanagedType.LPWStr)] string mapping,
+        [MarshalAs(UnmanagedType.LPWStr)] string symbolDirectory);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     delegate int IdentifyGlyphDelegate(ushort glyph);
     readonly MemoryMappedFile mapping;
@@ -17,6 +20,7 @@ internal sealed class SystemIconSession : IDisposable
     bool disposed;
     internal bool IsDisposed => disposed;
     internal uint Pid { get; }
+    internal bool Legacy { get; }
     internal int Found => view.ReadInt32(16);
     internal int Hidden => view.ReadInt32(20);
     internal int Ticks => view.ReadInt32(24);
@@ -48,12 +52,14 @@ internal sealed class SystemIconSession : IDisposable
         Native.GetWindowThreadProcessId(window, out var pid);
         return pid;
     }
-    internal SystemIconSession()
+    internal SystemIconSession(bool legacy = false)
     {
+        Legacy = legacy;
         if (!Environment.Is64BitProcess || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException(L.T("systemNativeArchitecture"));
         Pid = ExplorerPid();
         if (Pid == 0) throw new IOException(L.T("systemNativeUnavailable"));
+        string? symbols = legacy ? null : TaskbarSymbols.PrepareAsync().GetAwaiter().GetResult();
         string source = Path.Combine(AppContext.BaseDirectory, "TrayPilot.Xaml.dll");
         string hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source)));
         string cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot", "native", hash);
@@ -67,8 +73,10 @@ internal sealed class SystemIconSession : IDisposable
         try
         {
             library = NativeLibrary.Load(dll);
-            var attach = Marshal.GetDelegateForFunctionPointer<AttachDelegate>(NativeLibrary.GetExport(library, "Attach"));
-            Marshal.ThrowExceptionForHR(attach(Pid, name));
+            int result = legacy
+                ? Marshal.GetDelegateForFunctionPointer<AttachDelegate>(NativeLibrary.GetExport(library, "Attach"))(Pid, name)
+                : Marshal.GetDelegateForFunctionPointer<AttachWithSymbolsDelegate>(NativeLibrary.GetExport(library, "AttachWithSymbols"))(Pid, name, symbols!);
+            Marshal.ThrowExceptionForHR(result);
         }
         catch { Dispose(); throw; }
     }
@@ -82,7 +90,7 @@ internal sealed class SystemIconSession : IDisposable
     }
     internal string DebugInfo()
     {
-        return $"Taskbar timestamp={view.ReadUInt32(48):X8} ImageSize={view.ReadUInt32(52)}";
+        return $"Backend={(Legacy ? "LegacySymbolServer" : "DirectSymbolCache")} OS={Environment.OSVersion.Version}\nTaskbar timestamp={view.ReadUInt32(48):X8} ImageSize={view.ReadUInt32(52)}";
     }
     internal int IdentifyGlyph(char glyph) => Marshal.GetDelegateForFunctionPointer<IdentifyGlyphDelegate>(
         NativeLibrary.GetExport(library, "IdentifyGlyph"))(glyph);

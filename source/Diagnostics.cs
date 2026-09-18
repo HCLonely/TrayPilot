@@ -20,6 +20,7 @@ internal static partial class Diagnostics
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
+            if (args[0] == "--symbol-cache-test" && args.Length == 2) return TestSymbolCache(args[1]);
             if (args[0] == "--system-icons-live-test" && args.Length == 2) return TestLiveSystemIcons(args[1]);
             if (args[0] == "--system-icons-ui-test" && args.Length == 2) return TestSystemIconUi(args[1]);
             if (args[0] == "--system-icons-crash-host" && args.Length == 2)
@@ -51,9 +52,9 @@ internal static partial class Diagnostics
                 finally { session.Set(0); Thread.Sleep(1000); Capture("-restored"); }
                 return 0;
             }
-            if (args[0] == "--system-icons-probe" && args.Length == 2)
+            if (args[0] is "--system-icons-probe" or "--system-icons-probe-legacy" && args.Length == 2)
             {
-                using var session = new SystemIconSession();
+                using var session = new SystemIconSession(legacy: args[0].EndsWith("-legacy"));
                 for (int i = 0; i < 80 && session.Ticks == 0 && session.Error == 0; i++) Thread.Sleep(250);
                 File.WriteAllText(args[1], $"PID={session.Pid} Found={session.Found} Hidden={session.Hidden} Ticks={session.Ticks} Error=0x{session.Error:X8}\n{session.DebugInfo()}");
                 return session.Ticks > 0 && session.Error == 0 ? 0 : 1;
@@ -961,4 +962,3 @@ internal static partial class Diagnostics
         controller.Saved.Theme = "system"; controller.Saved.Language = "zh-CN"; controller.Saved.ShowAllHotkeyEnabled = false; controller.Saved.MainHotkeyEnabled = false; controller.Saved.ShowTrayIcon = true; controller.RemoveRule(own[0].Path);
     }
 }
-

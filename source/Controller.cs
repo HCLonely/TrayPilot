@@ -16,6 +16,7 @@ internal sealed class SavedState
     public List<IconRule> HiddenIcons { get; set; } = new();
     public List<TrayEntry> Recovery { get; set; } = new();
     public int HiddenSystemIcons { get; set; }
+    public bool UseLegacySystemIconDiscovery { get; set; }
     public string Language { get; set; } = L.SystemLanguage;
     public bool CloseToTray { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;

@@ -311,11 +311,14 @@ extern "C" HRESULT __stdcall DllCanUnloadNow() { return S_FALSE; }
 extern "C" __declspec(dllexport) LONG __stdcall IdentifyGlyph(wchar_t glyph) noexcept {
     try { return Context::Glyph(hstring(std::wstring(1,glyph))); } catch(...) { return 0; }
 }
-HRESULT ResolveSymbols(Shared* shared) {
+HRESULT ResolveSymbols(Shared* shared,PCWSTR symbolDirectory=nullptr) {
+    static std::mutex symbolsMutex;
+    std::lock_guard lock(symbolsMutex); // DbgHelp is single-threaded.
     wchar_t system[MAX_PATH]; GetSystemDirectoryW(system,MAX_PATH);
     std::wstring path=std::wstring(system)+L"\\taskbar.dll";
     wchar_t local[32768]; if(!GetEnvironmentVariableW(L"LOCALAPPDATA",local,32768)) return E_FAIL;
     std::wstring search=L"srv*"+std::wstring(local)+L"\\TrayPilot\\symbols*https://msdl.microsoft.com/download/symbols";
+    if(symbolDirectory) search=symbolDirectory;
     HANDLE process=GetCurrentProcess();
     SymSetOptions(SYMOPT_DEFERRED_LOADS|SYMOPT_FAIL_CRITICAL_ERRORS|SYMOPT_EXACT_SYMBOLS);
     if(!SymInitializeW(process,search.c_str(),FALSE)) return HRESULT_FROM_WIN32(GetLastError());
@@ -335,11 +338,11 @@ HRESULT ResolveSymbols(Shared* shared) {
     for(auto offset:shared->symbols) if(!offset) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     return S_OK;
 }
-extern "C" __declspec(dllexport) HRESULT __stdcall Attach(DWORD pid,PCWSTR mapping) noexcept {
+HRESULT AttachCore(DWORD pid,PCWSTR mapping,PCWSTR symbolDirectory) noexcept {
     HANDLE map=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,mapping);
     if(!map) return HRESULT_FROM_WIN32(GetLastError());
     auto data=static_cast<Shared*>(MapViewOfFile(map,FILE_MAP_ALL_ACCESS,0,0,sizeof(Shared)));
-    HRESULT resolved=data?ResolveSymbols(data):E_FAIL;
+    HRESULT resolved=data?ResolveSymbols(data,symbolDirectory):E_FAIL;
     if(data) UnmapViewOfFile(data); CloseHandle(map);
     if(FAILED(resolved)) return resolved;
     wchar_t path[32768]; if(!GetModuleFileNameW(module,path,32768)) return HRESULT_FROM_WIN32(GetLastError());
@@ -354,5 +357,12 @@ extern "C" __declspec(dllexport) HRESULT __stdcall Attach(DWORD pid,PCWSTR mappi
         if(SUCCEEDED(result) || result!=HRESULT_FROM_WIN32(ERROR_NOT_FOUND)) break;
     }
     FreeLibrary(xaml); return result;
+}
+// Keep the original symbol-server path available for existing installations.
+extern "C" __declspec(dllexport) HRESULT __stdcall Attach(DWORD pid,PCWSTR mapping) noexcept {
+    return AttachCore(pid,mapping,nullptr);
+}
+extern "C" __declspec(dllexport) HRESULT __stdcall AttachWithSymbols(DWORD pid,PCWSTR mapping,PCWSTR symbolDirectory) noexcept {
+    return AttachCore(pid,mapping,symbolDirectory);
 }
 BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,void*) { if(reason==DLL_PROCESS_ATTACH) module=instance; return TRUE; }

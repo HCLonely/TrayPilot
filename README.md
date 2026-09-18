@@ -76,7 +76,14 @@ Open **System icons** from the top bar or tray menu to directly hide or restore 
 
 Double-click a row to toggle visibility, use its context menu, or choose **Hide selected** / **Restore selected**. States are read from actual controls. Absent controls can be queued for hiding when they appear. When microphone and location share one indicator, both must be requested to hide it. Changes apply immediately and are saved automatically. Exit or process termination restores the original state; the next launch reapplies saved hiding without opening the system-icons dialog. **Restore all** and **Show all** clear saved system-icon choices. TrayPilot retries if Explorer restarts or is not ready at startup. System-icon choices are saved separately from application hide rules.
 
-The first connection may take time to download the matching taskbar.dll symbols from Microsoft's symbol server; subsequent connections use the cache. Keep `TrayPilot.Xaml.dll` beside the executable. This implementation targets the primary taskbar on Windows 11 x64 and may need updates after Windows changes. Secondary-taskbar clocks and ARM64 are unverified. Volume, network, clock, language bar, supplementary language icons and Show desktop passed individual, combined and crash-restoration checks on the current desktop. Other categories were absent and still need testing on a desktop displaying them.
+The system-icons dialog offers two **Detection method** choices. Selection reconnects immediately and is saved across launches:
+
+- **Updated compatibility method (recommended)** is the default. It reads the installed `taskbar.dll` symbol identity, downloads the exact Microsoft PDB over HTTPS, validates its GUID and DBI age, and caches it before using the existing control discovery. It requires no additional `symsrv.dll`, addressing the original method's “Element not found” (`0x80070490`) when symbol downloading is unavailable. Ordinary application tray scanning is unchanged.
+- **Original method** preserves the existing DbgHelp symbol-server path. It remains selectable and depends on the local symbol-download components and network configuration.
+
+The updated method may need a download on first connection or after a Windows update (45-second download timeout). Valid caches work offline; damaged or mismatched caches are downloaded again. Unpublished symbols, network failures, or incompatible internal layouts produce a connection error without guessing offsets. Switching methods restores the old session's controls and reapplies saved hide choices after a successful connection.
+
+Keep `TrayPilot.Xaml.dll` beside the executable. This implementation targets the primary taskbar on Windows 11 x64; secondary-taskbar clocks and ARM64 are unverified. The updated method passed individual, combined and crash-restoration checks for volume, network, battery, clock, supplementary language icons and Show desktop on **Windows 11 25H2, build 26200.9457**. Other categories were absent and still need testing on a desktop displaying them.
 
 ## Hotkeys, appearance and language
 
@@ -143,3 +150,13 @@ dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained 
 ```
 
 The output includes `app/TrayPilot.exe`, `app/TrayPilot.Xaml.dll` and `app/languages/`. Keep the complete directory at runtime. Sources are under `source/`, using C#, Windows Forms and Win32 APIs.
+
+### Detection diagnostics
+
+```powershell
+.\app\TrayPilot.exe --system-icons-probe .\probe.txt
+.\app\TrayPilot.exe --system-icons-probe-legacy .\probe-legacy.txt
+.\app\TrayPilot.exe --symbol-cache-test .\symbol-cache-test.txt
+```
+
+The first two commands test the updated and original methods respectively, reporting the backend and detected controls. Failures are written to the corresponding `.error.txt` file. The third checks the current symbol cache and rejection of corrupt or mismatched PDBs.

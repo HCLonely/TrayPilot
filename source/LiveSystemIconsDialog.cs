@@ -18,7 +18,8 @@ internal sealed partial class MainForm
     {
         if (systemIconsRequested == 0 || systemIconsConnecting || systemIconsChanging || closing || IsDisposed) return;
         if (systemIconSession is { Ticks: > 0, Error: 0, IsDisposed: false } current &&
-            current.Pid == SystemIconSession.ExplorerPid() && current.Requested == systemIconsRequested) return;
+            current.Pid == SystemIconSession.ExplorerPid() && current.Requested == systemIconsRequested &&
+            current.Legacy == controller.Saved.UseLegacySystemIconDiscovery) return;
         try { var session = await ConnectSystemIcons(); session.Set(systemIconsRequested); }
         catch (Exception ex) { if (!IsDisposed && !closing) status.Text = ex.Message; }
     }
@@ -30,13 +31,15 @@ internal sealed partial class MainForm
     }
     async Task<SystemIconSession> ConnectSystemIcons()
     {
-        if (systemIconSession != null && systemIconSession.Pid == SystemIconSession.ExplorerPid() && systemIconSession.Ticks > 0 && systemIconSession.Error == 0) return systemIconSession;
+        if (systemIconSession != null && systemIconSession.Pid == SystemIconSession.ExplorerPid() && systemIconSession.Ticks > 0 && systemIconSession.Error == 0 &&
+            systemIconSession.Legacy == controller.Saved.UseLegacySystemIconDiscovery) return systemIconSession;
         if (systemIconsConnecting) throw new IOException(L.T("systemNativeConnecting"));
         systemIconsConnecting = true;
         try
         {
             if (systemIconSession != null) { systemIconSession.Dispose(); systemIconSession = null; await Task.Delay(500); }
-            var session = await Task.Run(() => new SystemIconSession());
+            bool legacy = controller.Saved.UseLegacySystemIconDiscovery;
+            var session = await Task.Run(() => new SystemIconSession(legacy));
             if (IsDisposed || closing) { session.Dispose(); throw new ObjectDisposedException(nameof(MainForm)); }
             systemIconSession = session;
             for (int i = 0; i < 40 && session.Ticks == 0 && session.Error == 0; i++) await Task.Delay(100);
@@ -60,6 +63,14 @@ internal sealed partial class MainForm
         layout.RowStyles.Add(new(SizeType.AutoSize)); layout.RowStyles.Add(new(SizeType.Percent, 100));
         layout.RowStyles.Add(new(SizeType.AutoSize)); layout.RowStyles.Add(new(SizeType.AutoSize));
         var help = new Label { Text = L.T("systemLiveHelp"), AutoSize = true, MaximumSize = new(720, 0), Margin = new(0, 0, 0, 15) };
+        var discovery = new ComboBox { Name = "SystemIconDiscovery", DropDownStyle = ComboBoxStyle.DropDownList, Width = 380 };
+        discovery.Items.AddRange(new object[] { L.T("systemDiscoveryDirect"), L.T("systemDiscoveryLegacy") });
+        discovery.SelectedIndex = controller.Saved.UseLegacySystemIconDiscovery ? 1 : 0;
+        var discoveryRow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top };
+        discoveryRow.Controls.Add(new Label { Text = L.T("systemDiscovery"), AutoSize = true, Margin = new(0, 6, 12, 0) });
+        discoveryRow.Controls.Add(discovery);
+        var header = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 2 };
+        header.Controls.Add(help); header.Controls.Add(discoveryRow);
         var rows = new TrayListView { Name = "SystemIconRows", Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
         using var icons = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new(24 * DeviceDpi / 96, 24 * DeviceDpi / 96) };
         _ = icons.Handle; // Copy bitmaps immediately before their drawing resources are disposed.
@@ -79,7 +90,7 @@ internal sealed partial class MainForm
         var close = UiTheme.Button(L.T("close"));
         hide.Name = "HideSystemIcon"; restore.Name = "RestoreSystemIcon";
         buttons.Controls.AddRange(new Control[] { hide, restore, refresh, close });
-        layout.Controls.Add(help); layout.Controls.Add(rows); layout.Controls.Add(state); layout.Controls.Add(buttons); dialog.Controls.Add(layout);
+        layout.Controls.Add(header); layout.Controls.Add(rows); layout.Controls.Add(state); layout.Controls.Add(buttons); dialog.Controls.Add(layout);
         bool operating = false;
         int SelectedMask() => rows.SelectedItems.Count == 1 ? (int)rows.SelectedItems[0].Tag! : 0;
         bool Connected() => systemIconSession is { Ticks: > 0, Error: 0, IsDisposed: false } session && session.Pid == SystemIconSession.ExplorerPid();
@@ -115,6 +126,7 @@ internal sealed partial class MainForm
             toggleItem.Enabled = hide.Enabled;
             toggleItem.Text = L.T(ShouldHide(selected) ? "hideSelected" : "restoreSelected");
             refresh.Enabled = !operating;
+            discovery.Enabled = !operating && !systemIconsConnecting && !systemIconsChanging;
         }
         async Task Connect()
         {
@@ -170,6 +182,24 @@ internal sealed partial class MainForm
         };
         menu.Opening += (_, e) => { UpdateRows(); e.Cancel = !toggleItem.Enabled; };
         refresh.Click += async (_, _) => await Connect();
+        discovery.SelectedIndexChanged += async (_, _) =>
+        {
+            bool previous = controller.Saved.UseLegacySystemIconDiscovery;
+            bool legacy = discovery.SelectedIndex == 1;
+            if (previous == legacy) return;
+            try
+            {
+                controller.Saved.UseLegacySystemIconDiscovery = legacy;
+                controller.Save();
+            }
+            catch (Exception ex)
+            {
+                controller.Saved.UseLegacySystemIconDiscovery = previous;
+                discovery.SelectedIndex = previous ? 1 : 0;
+                state.Text = ex.Message; return;
+            }
+            await Connect();
+        };
         close.Click += (_, _) => dialog.Close(); rows.SelectedIndexChanged += (_, _) => UpdateRows();
         using var poll = new System.Windows.Forms.Timer { Interval = 500 };
         poll.Tick += (_, _) => UpdateRows(); dialog.Shown += async (_, _) => { poll.Start(); await Connect(); };

@@ -85,6 +85,18 @@ internal static partial class Diagnostics
                     Check(absent.SubItems[1].Text == L.T("systemNativeWaiting"), "Absent icon can be queued for hiding");
                     restore.PerformClick(); await AwaitState(0, null);
                 }
+                var discovery = (ComboBox)dialog.Controls.Find("SystemIconDiscovery", true).Single();
+                Check(discovery.Items.Count == 2 && discovery.SelectedIndex == 0 && !session.Legacy,
+                    "New compatibility method is the default and original method remains selectable");
+                discovery.SelectedIndex = 1;
+                Check(new Controller(folder).Saved.UseLegacySystemIconDiscovery, "Original method selection is persisted");
+                for (int i = 0; i < 500 && !discovery.Enabled; i++) await Task.Delay(100);
+                Check(discovery.Enabled, "Original connection attempt completes and allows switching back");
+                discovery.SelectedIndex = 0;
+                for (int i = 0; i < 500 && !discovery.Enabled; i++) await Task.Delay(100);
+                Check(discovery.Enabled && form.systemIconSessionForDiagnostics is { Legacy: false, Error: 0 },
+                    "Switching back reconnects with the new method");
+                Check(!new Controller(folder).Saved.UseLegacySystemIconDiscovery, "New method selection is persisted");
                 using (var screenshot = new Bitmap(dialog.Width, dialog.Height))
                 { dialog.DrawToBitmap(screenshot, new Rectangle(Point.Empty, dialog.Size)); screenshot.Save(report + ".png"); }
                 CheckSelectionRendering(Path.GetDirectoryName(Path.GetFullPath(report))!, log);
