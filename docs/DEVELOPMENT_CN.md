@@ -1,0 +1,74 @@
+# 开发与技术说明
+
+[返回使用说明](../README_CN.md)
+
+## 从源码构建与诊断
+
+### 本地构建
+
+在 Windows 上安装 Visual Studio 2022 C++ x64 构建工具和 Windows SDK，以及 .NET 8 SDK 或支持 `net8.0-windows` 的更新 SDK，在仓库根目录执行：
+
+```powershell
+dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
+```
+
+发布输出为单个 `app/TrayPilot.exe`，包含内置语言包与原生模块。完整版包含 .NET（原生运行时组件在启动时自动释放）；精简版需要 .NET 8 Desktop Runtime x64。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。
+
+### 识别诊断
+
+```powershell
+.\app\TrayPilot.exe --system-icons-probe .\probe.txt
+.\app\TrayPilot.exe --system-icons-probe-legacy .\probe-legacy.txt
+.\app\TrayPilot.exe --symbol-cache-test .\symbol-cache-test.txt
+```
+
+前两项分别测试新版方案和旧方案，报告包含识别结果与方案名称；失败详情写入对应的 `.error.txt` 文件。第三项检查本机符号缓存及损坏、错版缓存的拒绝行为。
+
+## 添加语言包
+
+内置语言包已嵌入 EXE，源文件位于 `source/languages/`。可选的 EXE 同级 `languages/` 目录支持添加或覆盖语言包，使用 UTF-8 JSON：
+
+```json
+{
+  "Name": "English",
+  "Strings": {
+    "mainWindowTitle": "TrayPilot · Tray Icon Manager",
+    "settings": "Settings"
+  }
+}
+```
+
+键使用简短、稳定的语义化英文标识，采用 `camelCase` 命名（如 `mainWindowTitle`、`trayIconDetails`），不包含显示文案中的标点、换行或格式占位符。复制现有完整语言包，只翻译 `Strings` 的值，保留键和 `{0}`、`{1}` 等格式占位符。文件名（不含扩展名）作为语言标识，`Name` 为设置中的显示名称。重新打开设置即可发现新增文件。缺失翻译回退为内置英文；缺失或无效的语言包不会阻止正常图标管理。
+
+## 配置与异常恢复
+
+配置、隐藏规则和恢复记录保存在：
+
+```text
+%LOCALAPPDATA%\TrayPilot\settings.json
+```
+
+隐藏前先保存恢复记录，启动时尝试恢复上次记录，再按当前规则运行。正常退出前也会恢复；若恢复失败，程序保留记录并取消退出，可稍后重试。
+
+若程序被强制结束，可重新打开后点击 **全部恢复**，或重新启动目标软件，让它重新创建图标。仍有图标隐藏时不要删除恢复记录。
+
+程序不修改其他软件配置，也不写入 Windows 托盘的 `NotifyIconSettings` 设置。开机启动使用当前用户的计划任务，切换时仅清理本程序遗留的 Run 启动项与 StartupApproved 状态。
+
+## 兼容范围与实现
+
+本项目是面向 **Windows 11 25H2** 的原型。其他系统版本、未来 Windows 补丁及特殊软件的兼容性需要实际验证。
+
+- 优先使用 Windows 缓存图标，依次回退到 EXE 图标、通用图标。缓存图标及提示可能不是实时内容；名称主要来自 EXE 文件描述，脚本可能显示宿主名称。
+- 音量、网络、电池、时钟等 Explorer 内建控件通过独立的 **系统图标** 窗口直接控制，兼容性及生效方式见上文。
+- 无托盘记录、路径匹配失败、受保护进程或特殊实现可能无法识别或控制。
+
+## 系统图标实现
+
+系统图标窗口提供两种 **识别方案**，选择后立即重新连接并保存，下次启动继续使用：
+
+- **新版兼容方案（推荐）**：默认启用。读取当前 `taskbar.dll` 的符号标识，通过 HTTPS 直接获取微软对应的 PDB，校验 GUID 与 DBI age 后缓存，再进行原有的控件识别。无需额外安装 `symsrv.dll`，解决旧方案无法下载符号时的“找不到元素”（`0x80070490`）问题；不会修改普通软件托盘图标的扫描方式。
+- **旧方案**：保留原有 DbgHelp 符号服务器解析路径，可随时切回。此路径仍受本机符号下载组件和网络环境影响。
+
+新版方案首次连接或 Windows 更新后可能需要联网下载符号（下载超时为 45 秒）；有效缓存可离线复用，损坏或版本不匹配的缓存会重新下载。微软未发布对应符号、网络不可用或系统内部布局改变时会显示连接失败，不会猜测内存偏移。切换方案时恢复旧连接控制的图标，成功连接后重新应用已保存的隐藏选择。
+
+原生模块已内嵌到 EXE，使用时自动释放到 `%LOCALAPPDATA%/TrayPilot/native/<SHA256>/`，无需随 EXE 附带 DLL。这是单文件分发，并非纯托管实现：XAML 诊断接口需要把进程内 COM DLL 加载到 Explorer。源码编译仍需 C++ 工具链。当前实现针对 Windows 11 x64 主任务栏；副屏时钟和 ARM64 尚未验证。新增方案已在 **Windows 11 25H2，26200.9457** 实测音量、网络、电池、时钟、语言栏附加图标及“显示桌面”的单独隐藏、恢复、组合隐藏和异常退出恢复；其他当时未出现的控件仍待实机验证。

@@ -5,9 +5,9 @@ namespace TrayPilot;
 
 internal static class TrayImages
 {
-    internal static Bitmap Create(TrayEntry entry, int size)
+    internal static Bitmap Create(TrayEntry entry, int size, bool allowFileAccess = true)
     {
-        using var source = Load(entry);
+        using var source = Load(entry, allowFileAccess);
         var result = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(result);
         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -24,7 +24,7 @@ internal static class TrayImages
         return result;
     }
 
-    static Bitmap Load(TrayEntry entry)
+    static Bitmap Load(TrayEntry entry, bool allowFileAccess)
     {
         if (entry.IconSnapshot is { Length: > 0 })
         {
@@ -36,6 +36,7 @@ internal static class TrayImages
             }
             catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException) { }
         }
+        if (!allowFileAccess) return SystemIcons.Application.ToBitmap();
         try
         {
             using var icon = Icon.ExtractAssociatedIcon(entry.Path);

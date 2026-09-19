@@ -58,26 +58,19 @@ jobs:
           PACKAGE: ${{ matrix.package }}
         run: |
           $publishDir = Join-Path ./publish $env:PACKAGE
-          foreach ($required in @('TrayPilot.exe', 'TrayPilot.Xaml.dll')) {
-            if (-not (Test-Path (Join-Path $publishDir $required) -PathType Leaf)) {
-              throw "Missing package file: $required"
-            }
+          $files = @(Get-ChildItem $publishDir -File -Recurse)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'TrayPilot.exe') {
+            throw 'The published package must contain only TrayPilot.exe.'
           }
-          # Loading and checking exports needs no Explorer or interactive taskbar.
-          $helper = [System.Runtime.InteropServices.NativeLibrary]::Load((Resolve-Path (Join-Path $publishDir 'TrayPilot.Xaml.dll')).Path)
-          try {
-            foreach ($export in @('Attach', 'AttachWithSymbols', 'IdentifyGlyph', 'DllGetClassObject', 'DllCanUnloadNow')) {
-              [void][System.Runtime.InteropServices.NativeLibrary]::GetExport($helper, $export)
-            }
-          } finally {
-            [System.Runtime.InteropServices.NativeLibrary]::Free($helper)
+          # Exercise embedded resources and helper loading without an Explorer session.
+          $report = Join-Path $env:RUNNER_TEMP "package-$env:PACKAGE.txt"
+          $process = Start-Process -FilePath (Join-Path $publishDir 'TrayPilot.exe') -ArgumentList @('--package-test', "`"$report`"") -WindowStyle Hidden -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Package test timed out.' }
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path "$report.error.txt") { Get-Content "$report.error.txt" }
+            throw 'Embedded resource verification failed.'
           }
-          foreach ($language in Get-ChildItem ./source/languages -Filter *.json) {
-            $publishedLanguage = Join-Path $publishDir "languages/$($language.Name)"
-            if (-not (Test-Path $publishedLanguage -PathType Leaf)) {
-              throw "Missing language pack: $($language.Name)"
-            }
-          }
+          Get-Content $report
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -116,7 +109,7 @@ jobs:
           foreach ($package in @('full', 'lite')) {
             $name = "TrayPilot-win-x64-$package"
             $packageDir = Join-Path ./packages $name
-            foreach ($required in @('TrayPilot.exe', 'TrayPilot.Xaml.dll', 'languages/en-US.json', 'languages/zh-CN.json')) {
+            foreach ($required in @('TrayPilot.exe')) {
               if (-not (Test-Path (Join-Path $packageDir $required) -PathType Leaf)) {
                 throw "Missing release file: $name/$required"
               }

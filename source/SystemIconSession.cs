@@ -1,6 +1,5 @@
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 
 namespace TrayPilot;
 
@@ -60,12 +59,7 @@ internal sealed class SystemIconSession : IDisposable
         Pid = ExplorerPid();
         if (Pid == 0) throw new IOException(L.T("systemNativeUnavailable"));
         string? symbols = legacy ? null : TaskbarSymbols.PrepareAsync().GetAwaiter().GetResult();
-        string source = Path.Combine(AppContext.BaseDirectory, "TrayPilot.Xaml.dll");
-        string hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source)));
-        string cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot", "native", hash);
-        Directory.CreateDirectory(cache);
-        string dll = Path.Combine(cache, "TrayPilot.Xaml.dll");
-        if (!File.Exists(dll)) File.Copy(source, dll);
+        string dll = NativeHelper.Extract();
         string name = @"Local\TrayPilot.SystemIcons." + Environment.ProcessId + "." + Guid.NewGuid().ToString("N");
         mapping = MemoryMappedFile.CreateNew(name, 4096);
         view = mapping.CreateViewAccessor();

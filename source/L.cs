@@ -25,7 +25,12 @@ internal static class L
     internal static Dictionary<string, Pack> Packs()
     {
         var packs = new Dictionary<string, Pack>(StringComparer.OrdinalIgnoreCase);
-        packs[FallbackLanguage] = new Pack { Name = "English", Strings = defaults };
+        const string prefix = "TrayPilot.languages.";
+        foreach (string resource in typeof(L).Assembly.GetManifestResourceNames().Where(x => x.StartsWith(prefix) && x.EndsWith(".json")))
+        {
+            using var stream = typeof(L).Assembly.GetManifestResourceStream(resource)!;
+            packs[resource[prefix.Length..^5]] = JsonSerializer.Deserialize<Pack>(stream)!;
+        }
         if (!Directory.Exists(Folder)) return packs;
         string[] files;
         try { files = Directory.GetFiles(Folder, "*.json"); }

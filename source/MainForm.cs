@@ -210,7 +210,7 @@ internal sealed partial class MainForm : Form
     {
         itemMenu.Close();
         while (itemMenu.Items.Count > 0) { var old = itemMenu.Items[0]; itemMenu.Items.RemoveAt(0); old.Dispose(); }
-        int state = Scanner.SameOwner(entry) ? Native.State(entry) : -1;
+        int state = entries.FirstOrDefault(x => x.Key == entry.Key)?.State ?? entry.State;
         itemMenu.Items.Add(L.T("properties"), null, (_, _) => { itemMenu.Close(); ShowProperties(entry); });
         var toggle = itemMenu.Items.Add(L.T(state == 1 ? "showIcons" : "hideIcons"), null, (_, _) => { itemMenu.Close(); ToggleEntry(entry); });
         toggle.Enabled = !busy && state is 0 or 1;

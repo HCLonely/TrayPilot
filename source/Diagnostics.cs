@@ -60,6 +60,8 @@ internal static partial class Diagnostics
                 return session.Ticks > 0 && session.Error == 0 ? 0 : 1;
             }
             if (args[0] == "--startup-test" && args.Length == 2) return TestStartup(args[1]);
+            if (args[0] == "--package-test" && args.Length == 2) return TestPackage(args[1]);
+            if (args[0] == "--menu-performance-test" && args.Length == 2) return TestMenuPerformance(args[1]);
             if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
             if (args[0] == "--verify-task-manager" && args.Length == 2) return TestTaskManager(args[1]);
             if (args[0] == "--icon-selection-test" && args.Length == 2) return TestIconSelection(args[1]);
@@ -349,7 +351,7 @@ internal static partial class Diagnostics
             });
             File.WriteAllLines(report, log); return 0;
         }
-        finally { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(key, false); }
+        finally { new StartupRegistration(key).SetEnabled(false); Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(key, false); }
     }
 
     static void TestStartupRegistration(StartupRegistration startup, string keyPath, Action<bool, string> check)
@@ -358,11 +360,32 @@ internal static partial class Diagnostics
         var empty = startup.Capture();
         startup.SetEnabled(true);
         check(startup.Enabled && startup.Command == "\"" + Environment.ProcessPath + "\" --startup", "Startup registers a quoted executable with the background startup argument.");
+        var enabled = startup.Capture();
+        var xml = System.Xml.Linq.XElement.Parse(enabled.TaskXml!);
+        System.Xml.Linq.XNamespace ns = xml.Name.Namespace;
+        check((xml.Descendants(ns + "Delay").SingleOrDefault()?.Value ?? "PT0S") == "PT0S"
+            && xml.Descendants(ns + "Priority").Single().Value == "3"
+            && xml.Descendants(ns + "LogonType").Single().Value == "InteractiveToken"
+            && (xml.Descendants(ns + "RunLevel").SingleOrDefault()?.Value ?? "LeastPrivilege") == "LeastPrivilege"
+            && xml.Descendants(ns + "ExecutionTimeLimit").Single().Value == "PT0S"
+            && xml.Descendants(ns + "DisallowStartIfOnBatteries").Single().Value == "false"
+            && enabled.Run == null, "Login task has no delay, above-normal priority, no elevation, no time limit or battery restriction, and no duplicate Run entry.");
+        xml.Element(ns + "Settings")!.SetElementValue(ns + "Enabled", "false");
+        startup.Restore(enabled with { TaskXml = xml.ToString() });
+        check(!startup.Enabled, "Disabling the scheduled task is reflected in the UI state.");
+        startup.SetEnabled(true);
+        check(startup.Enabled, "Explicit enable re-enables the scheduled task.");
+        startup.Restore(empty);
         using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(keyPath))
+        {
             key.SetValue("Unrelated", "keep");
+            key.SetValue("TrayPilot", startup.Command);
+        }
         using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(keyPath + @"\Approval"))
             key.SetValue("TrayPilot", new byte[] { 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
         check(!startup.Enabled, "A Task Manager disabled startup entry is displayed as disabled.");
+        startup.UpgradeLegacy();
+        check(startup.Capture().TaskXml == null, "Migration respects a disabled legacy startup entry.");
         var disabled = startup.Capture();
         startup.SetEnabled(true);
         check(startup.Enabled, "Explicitly enabling startup clears the previous disabled approval.");
@@ -373,6 +396,11 @@ internal static partial class Diagnostics
         using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(keyPath))
             check(!startup.Enabled && key!.GetValue("TrayPilot") == null && (string?)key.GetValue("Unrelated") == "keep",
                 "Disabling removes only TrayPilot's registration and preserves unrelated entries.");
+        startup.Restore(empty);
+        using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(keyPath)) key.SetValue("TrayPilot", startup.Command);
+        startup.UpgradeLegacy();
+        check(startup.Enabled && startup.Capture().Run == null && startup.Capture().TaskXml != null,
+            "Enabled legacy registrations migrate to the login task without duplicate startup entries.");
         startup.Restore(empty);
         var controller = new Controller(Path.Combine(Path.GetTempPath(), "TrayPilot-startup-" + Guid.NewGuid().ToString("N")));
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
@@ -475,6 +503,7 @@ internal static partial class Diagnostics
         {
             try { new Controller(Path.Combine(folder, "state")).RestoreManaged(); } catch (Exception e) { log.Add("Cleanup: " + e.Message); }
             if (host != null) { File.WriteAllText(Path.Combine(folder, "stop"), ""); host.WaitForExit(5000); host.Dispose(); }
+            startup.SetEnabled(false);
             Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(startupKey, throwOnMissingSubKey: false);
             File.WriteAllLines(report, log);
         }

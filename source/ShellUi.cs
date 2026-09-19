@@ -10,6 +10,10 @@ internal sealed partial class MainForm
     GlobalHotkey? showAllHotkey, hideRulesHotkey, mainHotkey;
     int trayPage, trayPages = 1;
     bool trayPagePending;
+    bool? cachedStartup;
+    string? startupQueryError;
+    bool startupQueryPending;
+    int startupQueryVersion;
     internal const int TrayPageSize = 10;
     internal sealed record LanguageChoice(string Code, string Name) { public override string ToString() => Name; }
     bool exitRequested, hotkeyWarning;
@@ -35,6 +39,7 @@ internal sealed partial class MainForm
             e.Cancel = trayMenu.Items.Count == 0;
         };
         trayMenu.PageRequested += MoveTrayPage;
+        trayMenu.Opened += async (_, _) => await RefreshStartupMenuAsync();
         if (initialize) InitializeTray();
     }
 
@@ -48,6 +53,37 @@ internal sealed partial class MainForm
         trayIcon.Visible = controller.Saved.ShowTrayIcon;
         RegisterShortcuts();
         UpdateStatus();
+        _ = RefreshStartupMenuAsync();
+    }
+
+    void CacheStartup(bool? enabled, string? error = null)
+    {
+        startupQueryVersion++;
+        cachedStartup = enabled;
+        startupQueryError = error;
+        if (trayMenu.Items.OfType<ToolStripMenuItem>().FirstOrDefault(x => x.Name == "startup") is { } item)
+        {
+            item.Checked = enabled == true;
+            item.Enabled = enabled.HasValue;
+            item.ToolTipText = error ?? "";
+        }
+    }
+
+    async Task RefreshStartupMenuAsync()
+    {
+        if (startupQueryPending || closing || IsDisposed) return;
+        startupQueryPending = true;
+        int version = startupQueryVersion;
+        try
+        {
+            bool enabled = await Task.Run(() => startup.Enabled);
+            if (!closing && !IsDisposed && version == startupQueryVersion) CacheStartup(enabled);
+        }
+        catch (Exception ex)
+        {
+            if (!closing && !IsDisposed && version == startupQueryVersion) CacheStartup(null, ex.Message);
+        }
+        finally { startupQueryPending = false; }
     }
 
     void ApplyLanguage()
@@ -79,19 +115,20 @@ internal sealed partial class MainForm
         trayMenu.Items.Add(L.T("openMainWindow"), null, (_, _) => OpenMainWindow());
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add(new ToolStripMenuItem(L.T("trayMenuIconsHelp")) { Enabled = false });
-        var groups = entries.Where(x => x.Pid != Environment.ProcessId && Scanner.SameOwner(x))
+        // Opening a popup must not wait for Explorer, process queries, files or Task Scheduler.
+        // RefreshAsync supplies the snapshot; click handlers validate the current owner/state.
+        var groups = entries.Where(x => x.Pid != Environment.ProcessId && x.State is 0 or 1)
             .GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
-        groups = groups.Where(g => g.Any(x => Native.State(x) is 0 or 1)).ToList();
         int pages = trayPages = Math.Max(1, (groups.Count + TrayPageSize - 1) / TrayPageSize);
         trayPage = Math.Clamp(trayPage, 0, pages - 1);
         foreach (var group in groups.Skip(trayPage * TrayPageSize).Take(TrayPageSize))
         {
-            var active = group.Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
+            var active = group.ToList();
             if (active.Count == 0) continue;
             var entry = active[0];
             bool shown = active.All(x => x.State == 0);
             var row = new ToolStripMenuItem(entry.Name) { Checked = shown, CheckOnClick = false, Enabled = !busy,
-                Image = TrayImages.Create(entry with { State = shown ? 0 : 1 }, 20), Tag = entry.Path,
+                Image = TrayImages.Create(entry with { State = shown ? 0 : 1 }, 20, allowFileAccess: false), Tag = entry.Path,
                 ToolTipText = entry.Path + "\n" + L.T(shown ? "clickToHideIconsHint" : "clickToShowIconsHint") };
             void ToggleGroup(object? sender, EventArgs args)
             {
@@ -142,12 +179,11 @@ internal sealed partial class MainForm
         if (groups.Count == 0) trayMenu.Items.Add(new ToolStripMenuItem(L.T("noIconsMessage")) { Enabled = false });
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add(L.T("refresh"), null, async (_, _) => { trayMenu.Close(); await RefreshAsync(); });
-        var autoStart = new ToolStripMenuItem(L.T("startWithWindows")) { Name = "startup", CheckOnClick = false };
-        try { autoStart.Checked = startup.Enabled; }
-        catch (Exception ex) { autoStart.Enabled = false; autoStart.ToolTipText = ex.Message; }
+        var autoStart = new ToolStripMenuItem(L.T("startWithWindows")) { Name = "startup", CheckOnClick = false,
+            Checked = cachedStartup == true, Enabled = cachedStartup.HasValue, ToolTipText = startupQueryError ?? "" };
         autoStart.Click += (_, _) =>
         {
-            try { startup.SetEnabled(!startup.Enabled); autoStart.Checked = startup.Enabled; }
+            try { startup.SetEnabled(!startup.Enabled); CacheStartup(startup.Enabled); }
             catch (Exception ex) { MessageBox.Show(ex.Message, L.T("startupSettingFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
         trayMenu.Items.Add(autoStart);
@@ -253,7 +289,7 @@ internal sealed partial class MainForm
         var showTrayIcon = new CheckBox { Text = L.T("showOwnTrayIcon"), Checked = controller.Saved.ShowTrayIcon, AutoSize = true };
         var autoStart = new CheckBox { Name = "startup", Text = L.T("startWithWindows"), AutoSize = true };
         string? startupError = null;
-        try { autoStart.Checked = startup.Enabled; }
+        try { autoStart.Checked = startup.Enabled; CacheStartup(autoStart.Checked); }
         catch (Exception ex) { autoStart.Enabled = false; startupError = ex.Message; }
         bool originalStartup = autoStart.Checked;
         var enabled = new[] { controller.Saved.MainHotkeyEnabled, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.HideRulesHotkeyEnabled };
@@ -368,6 +404,7 @@ internal sealed partial class MainForm
                 return;
             }
             if (trayIcon != null) trayIcon.Visible = controller.Saved.ShowTrayIcon;
+            if (autoStart.Enabled) CacheStartup(autoStart.Checked);
             L.Set(controller.Saved.Language); ApplyLanguage(); ApplyTheme(); dialog.DialogResult = DialogResult.OK;
         };
         UiTheme.Apply(dialog); dialog.Shown += (_, _) => UiTheme.Apply(dialog);

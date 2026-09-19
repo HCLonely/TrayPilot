@@ -3,9 +3,14 @@ internal static class Program
 {
     [STAThread] static int Main(string[] args)
     {
+        bool startup = args.Length == 1 && args[0] == "--startup";
+        if (startup)
+        {
+            try { using var process = System.Diagnostics.Process.GetCurrentProcess(); process.PriorityClass = System.Diagnostics.ProcessPriorityClass.AboveNormal; }
+            catch (System.ComponentModel.Win32Exception) { } // A policy may prohibit a priority boost.
+        }
         ApplicationConfiguration.Initialize();
         L.Set(L.SystemLanguage);
-        bool startup = args.Length == 1 && args[0] == "--startup";
         if (args.Length > 0 && !startup) { Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException); return Diagnostics.Run(args); }
         try
         {
@@ -16,6 +21,11 @@ internal static class Program
             if (!created) { if (!startup) activation.Set(); return 0; }
             controller.RestoreManaged();
             using var form = new MainForm(controller, startInTray: startup);
+            form.Shown += (_, _) => _ = Task.Run(() =>
+            {
+                try { new StartupRegistration().UpgradeLegacy(); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); } // Keep an existing Run entry if migration fails.
+            });
             _ = form.Handle;
             var listener = ThreadPool.RegisterWaitForSingleObject(activation, (_, _) =>
             {
