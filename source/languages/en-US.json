@@ -100,7 +100,6 @@
     "emptySettingsFileMessage": "The settings file is empty.",
     "settingsFolder": "Settings folder",
     "language": "Language",
-    "languagePackFolder": "Language pack folder",
     "description": "Description",
     "noApplicationSelectedMessage": "Select one or more applications (Ctrl / Shift for multiple selection).",
     "exitViaMenuMessage": "Use Exit to quit TrayPilot so hidden icons can be restored.",

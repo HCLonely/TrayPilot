@@ -251,8 +251,7 @@ internal sealed partial class MainForm
             [L.T("projectUrl")] = projectUrl,
             [L.T("operatingSystem")] = Environment.OSVersion.VersionString,
             [L.T("applicationPath")] = Environment.ProcessPath ?? AppContext.BaseDirectory,
-            [L.T("settingsFolder")] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"),
-            [L.T("languagePackFolder")] = L.Folder
+            [L.T("settingsFolder")] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot")
         }, Font, about: true, projectUrl: projectUrl);
         timer.Stop();
         try { if (Visible) dialog.ShowDialog(this); else dialog.ShowDialog(); } finally { UpdateTimer(); }

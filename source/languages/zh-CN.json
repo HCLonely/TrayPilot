@@ -100,7 +100,6 @@
     "emptySettingsFileMessage": "设置文件为空。",
     "settingsFolder": "设置目录",
     "language": "语言",
-    "languagePackFolder": "语言包目录",
     "description": "说明",
     "noApplicationSelectedMessage": "请先选择一个或多个软件（支持 Ctrl / Shift 多选）。",
     "exitViaMenuMessage": "请通过退出菜单结束 TrayPilot，以便恢复隐藏图标。",
