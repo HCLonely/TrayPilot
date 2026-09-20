@@ -20,6 +20,7 @@ internal static partial class Diagnostics
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
             if (args[0] == "--test-host" && args.Length == 2) return Host(args[1]);
             if (args[0] == "--self-test" && args.Length == 2) return Test(args[1]);
+            if (args[0] == "--resilience-test" && args.Length == 2) return TestResilience(args[1]);
             if (args[0] == "--symbol-cache-test" && args.Length == 2) return TestSymbolCache(args[1]);
             if (args[0] == "--system-icons-live-test" && args.Length == 2) return TestLiveSystemIcons(args[1]);
             if (args[0] == "--system-icons-ui-test" && args.Length == 2) return TestSystemIconUi(args[1]);
@@ -472,6 +473,7 @@ internal static partial class Diagnostics
             var own = Scanner.Scan().Where(x => x.Pid == host.Id).ToList();
             Check(own.Count == 2, "Automatically discover both UID and GUID icons belonging to a separate process (message-only window).");
             Check(own.All(x => x.State == 0), "Both test icons initially displayed.");
+            TestStartupRecovery(own, Check, folder);
             TestExitPreferences(own, Check, folder);
             TestSessionEnding(new Controller(Path.Combine(folder, "session-state")), own, Check, Path.Combine(folder, "session-state", "settings.json.tmp"));
             TestBatchRecovery(controller, own, Check, Path.Combine(folder, "state", "settings.json.tmp"));

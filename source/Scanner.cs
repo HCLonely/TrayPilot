@@ -22,7 +22,7 @@ internal static class Scanner
 {
     internal static readonly Guid HardwareRemovalGuid = new("7820AE78-23E3-4229-82C1-E41CB67D5B9C");
     internal static bool IsShellEntry(TrayEntry entry) => Controller.SamePath(entry.Path, System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"));
-    static readonly Dictionary<string, string> Names = new(StringComparer.OrdinalIgnoreCase);
+    static readonly NameCache Names = new();
     internal static string ExpandPath(string path)
     {
         path = Environment.ExpandEnvironmentVariables(path);
@@ -34,11 +34,13 @@ internal static class Scanner
         return path;
     }
     static string Name(string path)
+        => Names.Get(path);
+    internal static string ReadName(string path)
     {
-        if (Names.TryGetValue(path, out var value)) return value;
+        string value;
         try { value = FileVersionInfo.GetVersionInfo(path).FileDescription ?? ""; } catch { value = ""; }
         if (string.IsNullOrWhiteSpace(value)) value = System.IO.Path.GetFileNameWithoutExtension(path);
-        return Names[path] = value;
+        return value;
     }
     internal static bool SameOwner(TrayEntry entry, Dictionary<uint, (string Path, long Start)>? processes = null)
     {

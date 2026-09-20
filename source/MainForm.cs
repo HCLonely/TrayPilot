@@ -21,10 +21,11 @@ internal sealed partial class MainForm : Form
     bool ListVisible => Visible && WindowState != FormWindowState.Minimized;
     bool RulesActive => !controller.Saved.RulesPaused && (controller.Saved.HiddenPaths.Count != 0 || controller.Saved.HiddenIcons.Count != 0);
     bool busy, closing;
-    internal MainForm(Controller controller, bool initialize = true, Func<List<TrayEntry>>? visibilityScanner = null, StartupRegistration? startup = null, bool startInTray = false)
+    internal MainForm(Controller controller, bool initialize = true, Func<List<TrayEntry>>? visibilityScanner = null, StartupRegistration? startup = null, bool startInTray = false, bool restoreOnStartup = false)
     {
         this.controller = controller;
         initialized = initialize;
+        busy = restoreOnStartup;
         systemIconsRequested = controller.Saved.HiddenSystemIcons & SystemIconCatalog.All;
         this.startup = startup ?? new StartupRegistration();
         this.visibilityScanner = visibilityScanner ?? Scanner.Scan;
@@ -99,7 +100,27 @@ internal sealed partial class MainForm : Form
         timer.Tick += async (_, _) => await RefreshSnapshotAsync(false);
         VisibleChanged += (_, _) => { if (initialize) { UpdateTimer(); if (ListVisible) { RenderList(); _ = RefreshAsync(); } } };
         Resize += (_, _) => { if (initialize) { UpdateTimer(); if (ListVisible) RenderList(); } };
-        Shown += async (_, _) => { if (startInTray && trayIcon?.Visible == true) Hide(); if (initialize) { await RefreshAsync(); UpdateTimer(); } };
+        Shown += async (_, _) =>
+        {
+            if (startInTray && trayIcon?.Visible == true) Hide();
+            if (restoreOnStartup)
+            {
+                EnsureUiContext();
+                status.Text = L.T("restoringStartupIcons");
+                await Task.Yield();
+                try { await controller.RestoreManagedAsync(); }
+                catch (OperationCanceledException) when (closing) { }
+                catch (Exception ex)
+                {
+                    if (!closing && !IsDisposed)
+                        MessageBox.Show(this, ex.Message + "\n" + L.T("recoveryRecordsRetainedMessage"), L.T("restoreIncomplete"));
+                }
+                finally { CompleteOperation(); }
+                if (!closing && !IsDisposed && controller.LoadWarning is string warning)
+                    MessageBox.Show(this, warning, L.T("mainWindowTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            if (initialize && !closing && !IsDisposed) { await RefreshAsync(); UpdateTimer(); }
+        };
         FormClosing += (_, e) =>
         {
             if (closing) return;
@@ -186,8 +207,19 @@ internal sealed partial class MainForm : Form
             var scanned = await Task.Run(() => scanSession.Scan(full));
             if (closing || IsDisposed) return;
             entries = scanned.Where(x => x.Pid != Environment.ProcessId).ToList();
-            try { await controller.ApplyAsync(entries); }
-            finally { UpdateEntryStatesCore(forceFull || autoRefresh.Checked); }
+            var matches = controller.RuleMatcher();
+            var affected = controller.Saved.RulesPaused ? new HashSet<string>() : entries
+                .Where(x => x.State != 1 && matches(x) && !controller.IsTemporarilyShown(x)).Select(x => x.Key).ToHashSet();
+            try { await controller.ApplyAsync(entries, freshSnapshot: true); }
+            finally
+            {
+                if (!closing && !IsDisposed)
+                {
+                    entries = entries.Select(x => affected.Contains(x.Key) ? x with { State = Native.State(x) } : x)
+                        .Where(x => x.State is 0 or 1).ToList();
+                    if (forceFull || autoRefresh.Checked) RenderList();
+                }
+            }
             UpdateStatus();
         }
         catch (Exception ex) { status.Text = L.T("refreshFailedPrefix") + ex.Message; }

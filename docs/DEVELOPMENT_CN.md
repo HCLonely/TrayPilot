@@ -39,6 +39,7 @@ dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained 
 ```powershell
 .\app\TrayPilot.exe --self-test .\self-test.txt
 .\app\TrayPilot.exe --refresh-regression-test .\refresh-regression.txt
+.\app\TrayPilot.exe --resilience-test .\resilience.txt
 .\app\TrayPilot.exe --refresh-performance-test .\refresh-performance.txt
 .\app\TrayPilot.exe --menu-performance-test .\menu-performance.txt
 .\app\TrayPilot.exe --system-icons-ui-test .\system-icons-ui.txt
@@ -77,6 +78,10 @@ dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained 
 若程序被强制结束，可重新打开后点击 **全部恢复**，或重新启动目标软件，让它重新创建图标。仍有图标隐藏时不要删除恢复记录。
 
 程序不修改其他软件配置，也不写入 Windows 托盘的 `NotifyIconSettings` 设置。开机启动使用当前用户的计划任务，切换时仅清理本程序遗留的 Run 启动项与 StartupApproved 状态。
+
+配置格式包含版本号，兼容缺少版本号的旧配置；不支持的未来版本不会被自动降级覆盖。保存时先写临时文件并刷入磁盘，再替换主文件，将上一版保存为 `settings.json.bak`。配置损坏或规则、恢复记录结构无效时，尝试读取有效备份，并保留原文件为 `settings.json.corrupt-<唯一标识>`。备份可能缺少最近一次更改，恢复后会提示；主文件和备份均无效时仍停止启动，不会丢弃恢复记录并创建空配置。
+
+单实例激活在读取配置之前执行。启动恢复在窗口显示后通过 UI 事件循环异步串行执行，失败时保留记录并允许在窗口中重试。刷新复用本轮扫描的状态，只复查自动隐藏涉及的图标，实际修改前仍检查进程身份。程序名称缓存最多 256 项，5 分钟后重新读取，支持同路径软件更新。
 
 ## 兼容范围与实现
 

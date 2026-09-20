@@ -12,6 +12,7 @@ internal sealed record IconRule(string Path, uint Id, Guid Guid, string WindowCl
 }
 internal sealed class SavedState
 {
+    public int Version { get; set; } = 1;
     public List<string> HiddenPaths { get; set; } = new();
     public List<IconRule> HiddenIcons { get; set; } = new();
     public List<TrayEntry> Recovery { get; set; } = new();
@@ -40,12 +41,44 @@ internal sealed class Controller
     readonly HashSet<string> manuallyShown = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, TrayEntry> individuallyShown = new();
     internal SavedState Saved { get; }
+    internal string? LoadWarning { get; private set; }
     internal Controller(string folder)
     {
         Directory.CreateDirectory(folder);
         file = System.IO.Path.Combine(folder, "settings.json");
         // Never silently discard an unreadable recovery journal.
-        Saved = File.Exists(file) ? JsonSerializer.Deserialize<SavedState>(File.ReadAllText(file)) ?? throw new IOException(L.T("emptySettingsFileMessage")) : new();
+        Saved = Load();
+    }
+    SavedState ReadState(string path)
+    {
+        var state = JsonSerializer.Deserialize<SavedState>(File.ReadAllText(path))
+            ?? throw new InvalidDataException(L.T("emptySettingsFileMessage"));
+        if (state.Version != 1) throw new NotSupportedException($"Unsupported settings version: {state.Version}");
+        if (state.HiddenPaths == null || state.HiddenIcons == null || state.Recovery == null ||
+            state.HiddenPaths.Any(string.IsNullOrWhiteSpace) ||
+            state.HiddenIcons.Any(x => x == null || string.IsNullOrWhiteSpace(x.Path) || x.WindowClass == null) ||
+            state.Recovery.Any(x => x == null || string.IsNullOrWhiteSpace(x.Path) || x.Name == null || x.Tooltip == null))
+            throw new InvalidDataException(L.T("invalidSettingsMessage"));
+        state.Language = string.IsNullOrWhiteSpace(state.Language) ? L.SystemLanguage : state.Language;
+        state.Theme = state.Theme is "light" or "dark" ? state.Theme : "system";
+        state.HiddenSystemIcons &= SystemIconCatalog.All;
+        return state;
+    }
+    SavedState Load()
+    {
+        if (!File.Exists(file) && !File.Exists(file + ".bak")) return new();
+        try { return ReadState(file); }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException or FileNotFoundException)
+        {
+            // Never replace an unreadable journal with empty defaults.
+            var backup = ReadState(file + ".bak");
+            string preserved = file + ".corrupt-" + Guid.NewGuid().ToString("N");
+            if (File.Exists(file)) File.Copy(file, preserved);
+            File.Copy(file + ".bak", file + ".tmp", true);
+            File.Move(file + ".tmp", file, true);
+            LoadWarning = L.F("settingsBackupRestoredMessage", preserved);
+            return backup;
+        }
     }
     internal static string NormalizePath(string path)
     {
@@ -100,8 +133,13 @@ internal sealed class Controller
     }
     internal void Save()
     {
-        File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(Saved, SaveOptions));
-        File.Move(file + ".tmp", file, true);
+        using (var stream = new FileStream(file + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(stream, Saved, SaveOptions);
+            stream.Flush(flushToDisk: true);
+        }
+        if (File.Exists(file)) File.Replace(file + ".tmp", file, file + ".bak");
+        else File.Move(file + ".tmp", file);
     }
     internal void SetHiddenSystemIcons(int mask)
     {
@@ -156,15 +194,19 @@ internal sealed class Controller
     }
     internal void Apply(List<TrayEntry> entries)
         => ApplyAsync(entries, false).GetAwaiter().GetResult();
-    internal async Task ApplyAsync(List<TrayEntry> entries, bool asynchronous = true)
+    internal async Task ApplyAsync(List<TrayEntry> entries, bool asynchronous = true, bool freshSnapshot = false)
     {
-        var staleEntries = Saved.Recovery.Where(x => !Scanner.SameOwner(x) || Native.State(x) < 0).ToList();
+        var processes = new Dictionary<uint, (string Path, long Start)>();
+        var known = entries.ToDictionary(x => x.Key);
+        var staleEntries = Saved.Recovery.Where(x =>
+            !(freshSnapshot && known.TryGetValue(x.Key, out var live) && live.Pid == x.Pid && live.Started == x.Started && Controller.SamePath(live.Path, x.Path)) &&
+            (!Scanner.SameOwner(x, processes) || Native.State(x) < 0)).ToList();
         foreach (var stale in staleEntries) Saved.Recovery.Remove(stale);
         if (staleEntries.Count > 0)
             try { Save(); } catch { Saved.Recovery.AddRange(staleEntries); throw; }
         if (Saved.RulesPaused) return;
         var matches = RuleMatcher();
-        await ChangeManyAsync(entries.Where(x => matches(x) && !IsTemporarilyShown(x)), true, asynchronous);
+        await ChangeManyAsync(entries.Where(x => (!freshSnapshot || x.State != 1) && matches(x) && !IsTemporarilyShown(x)), true, asynchronous);
     }
     async Task<bool> WaitForState(TrayEntry entry, int state, bool asynchronous)
     {

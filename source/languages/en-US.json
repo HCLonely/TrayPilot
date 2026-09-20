@@ -1,6 +1,9 @@
 {
   "Name": "English",
   "Strings": {
+    "invalidSettingsMessage": "The settings file contains invalid rules or recovery records.",
+    "settingsBackupRestoredMessage": "Settings were restored from the previous backup. Recent changes may be missing. The original file, if present, was preserved at: {0}\nIf an icon remains hidden, restart its application to restore it.",
+    "restoringStartupIcons": "Restoring icons from the previous session…",
     "addIconRule": "Auto-hide only this icon",
     "allApplicationIcons": "All icons for this application",
     "mainWindowTitle": "TrayPilot · Tray Icon Manager",

@@ -38,6 +38,7 @@ Run these diagnostics using a single-file published executable. Integration diag
 ```powershell
 .\app\TrayPilot.exe --self-test .\self-test.txt
 .\app\TrayPilot.exe --refresh-regression-test .\refresh-regression.txt
+.\app\TrayPilot.exe --resilience-test .\resilience.txt
 .\app\TrayPilot.exe --refresh-performance-test .\refresh-performance.txt
 .\app\TrayPilot.exe --menu-performance-test .\menu-performance.txt
 .\app\TrayPilot.exe --system-icons-ui-test .\system-icons-ui.txt
@@ -76,6 +77,10 @@ Normal system-icon session cleanup still restores original values. An explicit n
 After a forced termination, reopen TrayPilot and choose **Restore all**, or restart the affected application so it recreates its icons. Do not delete recovery records while icons remain hidden.
 
 TrayPilot does not modify other applications' settings or write to Windows tray `NotifyIconSettings`. Startup uses a per-user scheduled task. Enabling/disabling removes only TrayPilot's legacy Run and StartupApproved entries.
+
+Settings include a format version; older files without it remain supported, while unsupported future versions are never downgraded. Saving flushes a temporary file to disk before replacement and retains the previous file as `settings.json.bak`. Invalid JSON or malformed rules/recovery records trigger backup loading; the original is preserved as `settings.json.corrupt-<unique ID>`. A warning explains that the previous backup can omit recent changes. If neither file is valid, startup stops without replacing recovery records with empty defaults.
+
+Single-instance activation precedes settings loading. Startup recovery runs serially and asynchronously after the window is shown; failures retain records and allow retry from the window. Refresh reuses scanned states and rechecks icons targeted by automatic hiding, while mutations still verify process identity. The executable-name cache holds at most 256 entries and expires metadata after five minutes, including updates at the same path.
 
 ## Compatibility and implementation
 

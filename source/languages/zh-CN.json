@@ -1,6 +1,9 @@
 {
   "Name": "简体中文",
   "Strings": {
+    "invalidSettingsMessage": "设置文件包含无效的规则或恢复记录。",
+    "settingsBackupRestoredMessage": "已从上一份备份恢复设置，最近的更改可能缺失。原文件如存在，已保留至：{0}\n若仍有图标无法恢复，可重新启动对应软件。",
+    "restoringStartupIcons": "正在恢复上次运行的图标…",
     "addIconRule": "仅自动隐藏此图标",
     "allApplicationIcons": "此程序的所有图标",
     "mainWindowTitle": "TrayPilot · 托盘图标管理",

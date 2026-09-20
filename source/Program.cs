@@ -14,13 +14,12 @@ internal static class Program
         if (args.Length > 0 && !startup) { Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException); return Diagnostics.Run(args); }
         try
         {
-            var controller = new Controller(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"));
-            L.Set(controller.Saved.Language);
             using var activation = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\TrayPilot-Activate-v1");
             using var mutex = new Mutex(true, @"Local\TrayPilot-Manager-v1", out var created);
             if (!created) { if (!startup) activation.Set(); return 0; }
-            controller.RestoreManaged();
-            using var form = new MainForm(controller, startInTray: startup);
+            var controller = new Controller(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrayPilot"));
+            L.Set(controller.Saved.Language);
+            using var form = new MainForm(controller, startInTray: startup, restoreOnStartup: true);
             form.Shown += (_, _) => _ = Task.Run(() =>
             {
                 try { new StartupRegistration().UpgradeLegacy(); }
