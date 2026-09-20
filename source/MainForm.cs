@@ -13,11 +13,18 @@ internal sealed partial class MainForm : Form
     readonly RadioButton layoutMode = new() { Text = "gridLayout", Appearance = Appearance.Button, AutoSize = true };
     readonly ContextMenuStrip itemMenu = new();
     List<TrayEntry> entries = new();
-    string? renderedContent;
+    readonly TrayImageCache imageCache = new();
+    readonly ScanSession scanSession = new();
+    List<RenderedRow> renderedRows = new();
+    string? renderedLanguage, renderedSearch;
+    readonly bool initialized;
+    bool ListVisible => Visible && WindowState != FormWindowState.Minimized;
+    bool RulesActive => !controller.Saved.RulesPaused && (controller.Saved.HiddenPaths.Count != 0 || controller.Saved.HiddenIcons.Count != 0);
     bool busy, closing;
     internal MainForm(Controller controller, bool initialize = true, Func<List<TrayEntry>>? visibilityScanner = null, StartupRegistration? startup = null, bool startInTray = false)
     {
         this.controller = controller;
+        initialized = initialize;
         systemIconsRequested = controller.Saved.HiddenSystemIcons & SystemIconCatalog.All;
         this.startup = startup ?? new StartupRegistration();
         this.visibilityScanner = visibilityScanner ?? Scanner.Scan;
@@ -49,7 +56,7 @@ internal sealed partial class MainForm : Form
         searchRow.Controls.Add(autoRefresh, 2, 0); layout.Controls.Add(searchRow, 0, 2);
         AddButton("hideSelected", () => ChangeSelected(true)); AddButton("restoreSelected", () => ChangeSelected(false));
         var hideRules = UiTheme.Button("hideMatchingIcons"); hideRules.Click += async (_, _) => await ApplyVisibilityPresetAsync(true); actions.Controls.Add(hideRules);
-        AddButton("restoreAll", () => RunAction(() => { controller.RestoreManaged(temporarilyShow: true); RestoreLiveSystemIcons(); }));
+        AddButton("restoreAll", () => RunAsyncAction(async () => { await controller.RestoreManagedAsync(temporarilyShow: true); RestoreLiveSystemIcons(); }));
         var commandRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         commandRow.ColumnStyles.Add(new(SizeType.Percent, 100)); commandRow.ColumnStyles.Add(new(SizeType.AutoSize));
         actions.Margin = Padding.Empty; commandRow.Controls.Add(actions, 0, 0);
@@ -89,21 +96,64 @@ internal sealed partial class MainForm : Form
         SetupShell(initialize); ApplyTheme();
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnSystemThemeChanged;
         search.TextChanged += (_, _) => RenderList();
-        timer.Tick += async (_, _) => await RefreshAsync();
+        timer.Tick += async (_, _) => await RefreshSnapshotAsync(false);
+        VisibleChanged += (_, _) => { if (initialize) { UpdateTimer(); if (ListVisible) { RenderList(); _ = RefreshAsync(); } } };
+        Resize += (_, _) => { if (initialize) { UpdateTimer(); if (ListVisible) RenderList(); } };
         Shown += async (_, _) => { if (startInTray && trayIcon?.Visible == true) Hide(); if (initialize) { await RefreshAsync(); UpdateTimer(); } };
         FormClosing += (_, e) =>
         {
             if (closing) return;
+            // WM_QUERYENDSESSION asks for consent, not for an immediate exit.
+            // Leave the window and ongoing work intact in case shutdown is canceled.
+            if (e.CloseReason == CloseReason.WindowsShutDown) return;
             if (!exitRequested && e.CloseReason == CloseReason.UserClosing && controller.Saved.CloseToTray && trayIcon != null)
             { e.Cancel = true; Hide(); return; }
-            timer.Stop();
-            try { controller.RestoreManaged(); closing = true; }
-            catch (Exception ex) { e.Cancel = true; exitRequested = false; OpenMainWindow(); MessageBox.Show(this, ex.Message + "\n" + L.T("recoveryRecordsRetainedMessage"), L.T("restoreIncomplete")); UpdateTimer(); }
+            if (!controller.Saved.RestoreIconsOnExit)
+            {
+                closing = true; controller.StopOperations(); timer.Stop(); systemIconWatch.Stop();
+                return;
+            }
+            e.Cancel = true; exitRequested = true;
+            if (!busy) _ = ExitAsync();
         };
         FormClosed += (_, _) => timer.Stop();
         if (initialize) SetupSystemIconWatch();
     }
-    void UpdateTimer() => timer.Enabled = autoRefresh.Checked && !closing && !IsDisposed;
+    void UpdateTimer()
+    {
+        timer.Interval = (ListVisible && autoRefresh.Checked) || RulesActive || controller.Saved.Recovery.Count != 0 ? 2500 : 15000;
+        timer.Enabled = !closing && !IsDisposed && (autoRefresh.Checked || RulesActive || controller.Saved.Recovery.Count != 0);
+    }
+    void EnsureUiContext()
+    {
+        if (InvokeRequired) throw new InvalidOperationException("UI operations must start on the window thread.");
+        // Diagnostics also invoke handlers outside Application.Run. Install the UI
+        // context there so asynchronous controller mutations remain serialized.
+        if (SynchronizationContext.Current is not WindowsFormsSynchronizationContext)
+            SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+    }
+    async Task ExitAsync()
+    {
+        EnsureUiContext();
+        busy = true; timer.Stop();
+        try { await controller.RestoreManagedAsync(); closing = true; Close(); }
+        catch (Exception ex)
+        {
+            exitRequested = false; OpenMainWindow();
+            MessageBox.Show(this, ex.Message + "\n" + L.T("recoveryRecordsRetainedMessage"), L.T("restoreIncomplete"));
+        }
+        finally { CompleteOperation(); UpdateTimer(); }
+    }
+    void EndWindowsSession()
+    {
+        closing = true;
+        timer.Stop(); systemIconWatch.Stop();
+        // WM_ENDSESSION(TRUE) is the final notification: do not schedule an async
+        // continuation or display a dialog. Failed recovery keeps its journal.
+        controller.StopOperations();
+        try { if (controller.Saved.RestoreIconsOnExit) controller.RestoreManaged(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+    }
     void UpdateStatus() => status.Text = L.F("iconStatisticsStatus", entries.Count, controller.Saved.HiddenPaths.Count + controller.Saved.HiddenIcons.Count,
         L.T(autoRefresh.Checked ? "autoRefreshStatus" : "manualRefreshStatus"))
         + (controller.Saved.RulesPaused ? " · " + L.T("autoHidePaused") : "")
@@ -124,41 +174,75 @@ internal sealed partial class MainForm : Form
         var button = UiTheme.Button(text);
         button.Click += (_, _) => { if (!busy && !closing) handler(); }; actions.Controls.Add(button);
     }
-    async Task RefreshAsync()
+    Task RefreshAsync() => RefreshSnapshotAsync(true);
+    async Task RefreshSnapshotAsync(bool forceFull, bool operationOwned = false)
     {
-        if (busy || closing || itemMenu.Visible || trayMenu.Visible) return;
+        if ((!operationOwned && busy) || closing || itemMenu.Visible || trayMenu.Visible) return;
+        EnsureUiContext();
         busy = true;
         try
         {
-            var scanned = await Task.Run(Scanner.Scan);
+            bool full = forceFull || (ListVisible && autoRefresh.Checked);
+            var scanned = await Task.Run(() => scanSession.Scan(full));
             if (closing || IsDisposed) return;
             entries = scanned.Where(x => x.Pid != Environment.ProcessId).ToList();
-            try { controller.Apply(entries); }
-            finally { UpdateEntryStates(); }
+            try { await controller.ApplyAsync(entries); }
+            finally { UpdateEntryStatesCore(forceFull || autoRefresh.Checked); }
             UpdateStatus();
         }
         catch (Exception ex) { status.Text = L.T("refreshFailedPrefix") + ex.Message; }
-        finally { CompleteOperation(); }
+        finally { if (!operationOwned) { UpdateTimer(); CompleteOperation(); } }
     }
-    void UpdateEntryStates()
+    void UpdateEntryStates() => UpdateEntryStatesCore(true);
+    void UpdateEntryStatesCore(bool render)
     {
         if (closing || IsDisposed) return;
         entries = entries.Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
-        RenderList();
+        if (render) RenderList();
     }
     void RenderList()
     {
-        // Leave unchanged rows intact so periodic scanning does not dismiss tooltips or reset scrolling.
-        var content = System.Text.Json.JsonSerializer.Serialize(new { Language = L.Current, Search = search.Text, Rows = entries.Select(x => new
+        if (initialized && !ListVisible) return;
+        var matches = controller.RuleMatcher();
+        var rows = entries.Select(x => new RenderedRow(x, matches(x), controller.IsTemporarilyShown(x))).ToList();
+        if (renderedLanguage == L.Current && renderedSearch == search.Text && rows.Count == renderedRows.Count &&
+            rows.Zip(renderedRows).All(x => x.First.SameContent(x.Second))) return;
+        var pathCounts = entries.GroupBy(x => Controller.NormalizePath(x.Path), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.Count(), StringComparer.OrdinalIgnoreCase);
+        string filter = search.Text.Trim();
+        if (renderedLanguage == L.Current && renderedSearch == search.Text && rows.Count == renderedRows.Count &&
+            rows.Zip(renderedRows).All(x => x.First.Entry.Key == x.Second.Entry.Key && x.First.Entry.Name == x.Second.Entry.Name &&
+                x.First.Entry.Path == x.Second.Entry.Path && x.First.Entry.Tooltip == x.Second.Entry.Tooltip &&
+                x.First.Entry.Pid == x.Second.Entry.Pid) &&
+            list.SmallImageList is { } small && list.LargeImageList is { } large)
         {
-            x.Key, x.Name, x.Path, x.Tooltip, x.State, Rule = controller.HasRule(x), Manual = controller.IsTemporarilyShown(x),
-            Icon = x.IconSnapshot == null ? "" : Convert.ToBase64String(x.IconSnapshot)
-        }) });
-        if (content == renderedContent) return;
+            var changed = rows.Zip(renderedRows).Where(x => !x.First.SameContent(x.Second)).ToDictionary(x => x.First.Entry.Key, x => x.First);
+            list.BeginUpdate();
+            try
+            {
+                foreach (TrayListItem item in list.Items)
+                {
+                    if (!changed.TryGetValue(((TrayEntry)item.Tag!).Key, out var row)) continue;
+                    var entry = row.Entry;
+                    using var icon = imageCache.Create(entry, small.ImageSize.Width);
+                    using var largeIcon = imageCache.Create(entry, large.ImageSize.Width);
+                    small.Images[item.ImageIndex] = icon; large.Images[item.ImageIndex] = largeIcon;
+                    item.Tag = entry; item.ToolTipText = Details(entry);
+                    item.SubItems[1].Text = L.T(entry.State == 1 ? "fullyHidden" : "normal");
+                    item.SubItems[2].Text = row.Rule ? L.T("ruleMatchIndicator") : "—";
+                    item.ForeColor = entry.State == 1 ? Color.FromArgb(140, 145, 155) : UiTheme.Ink;
+                    item.MatchesRule = row.Rule;
+                }
+                renderedRows = rows;
+            }
+            finally { list.EndUpdate(); list.Invalidate(); }
+            return;
+        }
         var selected = list.SelectedItems.Cast<ListViewItem>().Select(x => ((TrayEntry)x.Tag!).Key).ToHashSet();
         var topKey = list.View == View.Details ? (list.TopItem?.Tag as TrayEntry)?.Key : null;
         var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(28, 28) };
         var largeImages = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(40, 40) };
+        _ = images.Handle; _ = largeImages.Handle;
         var oldImages = list.SmallImageList;
         var oldLargeImages = list.LargeImageList;
         list.BeginUpdate(); ((TrayListView)list).ClearHover(); list.Items.Clear();
@@ -166,19 +250,20 @@ internal sealed partial class MainForm : Form
         list.LargeImageList = largeImages;
         try
         {
-        foreach (var entry in entries)
+        foreach (var row in rows)
         {
-            if (!(entry.Name + entry.Path + entry.Tooltip).Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
-            using var icon = TrayImages.Create(entry, images.ImageSize.Width);
+            var entry = row.Entry;
+            if (!(entry.Name + entry.Path + entry.Tooltip).Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+            using var icon = imageCache.Create(entry, images.ImageSize.Width);
             images.Images.Add(icon);
-            using var largeIcon = TrayImages.Create(entry, largeImages.ImageSize.Width);
+            using var largeIcon = imageCache.Create(entry, largeImages.ImageSize.Width);
             largeImages.Images.Add(largeIcon);
-            var label = entries.Count(x => Controller.SamePath(x.Path, entry.Path)) > 1
+            var label = pathCounts[Controller.NormalizePath(entry.Path)] > 1
                 ? $"{entry.Name} · {(entry.Guid == Guid.Empty ? entry.Id.ToString() : entry.Guid.ToString())} · PID {entry.Pid}" : entry.Name;
-            var item = new TrayListItem(label, controller.HasRule(entry)) { Tag = entry, ImageIndex = images.Images.Count - 1,
+            var item = new TrayListItem(label, row.Rule) { Tag = entry, ImageIndex = images.Images.Count - 1,
                 ToolTipText = Details(entry), Selected = selected.Contains(entry.Key) };
             item.SubItems.Add(L.T(entry.State == 1 ? "fullyHidden" : "normal"));
-            item.SubItems.Add(controller.HasRule(entry) ? L.T("ruleMatchIndicator") : "—");
+            item.SubItems.Add(row.Rule ? L.T("ruleMatchIndicator") : "—");
             item.SubItems.Add(System.IO.Path.GetFileName(entry.Path)); item.SubItems.Add(entry.Path);
             item.BackColor = list.View == View.Details && list.Items.Count % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
             if (entry.State == 1) item.ForeColor = Color.FromArgb(140, 145, 155);
@@ -186,7 +271,7 @@ internal sealed partial class MainForm : Form
         }
         var top = list.Items.Cast<ListViewItem>().FirstOrDefault(x => ((TrayEntry)x.Tag!).Key == topKey);
         if (top != null) list.TopItem = top;
-        renderedContent = content;
+        renderedRows = rows; renderedLanguage = L.Current; renderedSearch = search.Text;
         }
         finally { list.EndUpdate(); oldImages?.Dispose(); oldLargeImages?.Dispose(); }
     }
@@ -198,11 +283,11 @@ internal sealed partial class MainForm : Form
 
     void ToggleEntry(TrayEntry entry)
     {
-        RunAction(() =>
+        RunAsyncAction(async () =>
         {
             var state = Scanner.SameOwner(entry) ? Native.State(entry) : -1;
             if (state is not (0 or 1)) throw new IOException(L.T("iconUnavailableMessage"));
-            ChangeEntries(new[] { entry }, state == 0);
+            await ChangeEntriesAsync(new[] { entry }, state == 0);
         });
     }
 
@@ -222,8 +307,8 @@ internal sealed partial class MainForm : Form
         var end = itemMenu.Items.Add(L.T("endTask"), null, async (_, _) => { itemMenu.Close(); await EndTaskAsync(entry); });
         end.Enabled = !busy && state is 0 or 1 && entry.Pid != Environment.ProcessId && !Scanner.IsShellEntry(entry);
         var program = new ToolStripMenuItem(L.T("allApplicationIcons")) { Enabled = !busy && state is 0 or 1 };
-        program.DropDownItems.Add(L.T("hideIcons"), null, (_, _) => { itemMenu.Close(); RunAction(() => ChangePaths(new[] { entry.Path }, true)); });
-        program.DropDownItems.Add(L.T("showIcons"), null, (_, _) => { itemMenu.Close(); RunAction(() => ChangePaths(new[] { entry.Path }, false)); });
+        program.DropDownItems.Add(L.T("hideIcons"), null, (_, _) => { itemMenu.Close(); RunAsyncAction(() => ChangePathsAsync(new[] { entry.Path }, true)); });
+        program.DropDownItems.Add(L.T("showIcons"), null, (_, _) => { itemMenu.Close(); RunAsyncAction(() => ChangePathsAsync(new[] { entry.Path }, false)); });
         program.DropDownItems.Add(L.T("addToMatchingRules"), null, (_, _) => { itemMenu.Close(); RunAction(() => controller.AddRule(entry.Path)); }).Enabled = !controller.HasRule(entry.Path);
         itemMenu.Items.Add(program);
         UiTheme.Apply(itemMenu); itemMenu.Show(list, location);
@@ -239,6 +324,7 @@ internal sealed partial class MainForm : Form
     async Task EndTaskAsync(TrayEntry entry)
     {
         if (busy || closing) return;
+        EnsureUiContext();
         busy = true;
         try
         {
@@ -255,36 +341,44 @@ internal sealed partial class MainForm : Form
     }
 
     void ChangePaths(IEnumerable<string> paths, bool hide)
+        => ChangePathsAsync(paths, hide, false).GetAwaiter().GetResult();
+    async Task ChangePathsAsync(IEnumerable<string> paths, bool hide, bool asynchronous = true)
     {
-        foreach (var path in paths.Select(Controller.NormalizePath).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            controller.SetManualVisibility(path, hide);
-            foreach (var entry in entries.Where(x => Controller.SamePath(x.Path, path)))
-                if (hide) controller.Hide(entry); else controller.Show(entry);
-        }
+        var selectedPaths = paths.Select(Controller.NormalizePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in selectedPaths) controller.SetManualVisibility(path, hide);
+        await controller.ChangeManyAsync(entries.Where(x => selectedPaths.Contains(Controller.NormalizePath(x.Path))), hide, asynchronous);
     }
     void ChangeSelected(bool hide)
     {
         var selected = list.SelectedItems.Cast<ListViewItem>().Select(x => (TrayEntry)x.Tag!).ToList();
         if (selected.Count == 0) { status.Text = L.T("noApplicationSelectedMessage"); return; }
-        RunAction(() => ChangeEntries(selected, hide));
+        RunAsyncAction(() => ChangeEntriesAsync(selected, hide));
     }
     void ChangeEntries(IEnumerable<TrayEntry> selected, bool hide)
+        => ChangeEntriesAsync(selected, hide, false).GetAwaiter().GetResult();
+    async Task ChangeEntriesAsync(IEnumerable<TrayEntry> selected, bool hide, bool asynchronous = true)
     {
-        foreach (var entry in selected.DistinctBy(x => x.Key))
-        {
-            controller.SetManualVisibility(entry, hide);
-            if (hide) controller.Hide(entry); else controller.Show(entry);
-        }
+        var targets = selected.DistinctBy(x => x.Key).ToList();
+        foreach (var entry in targets) controller.SetManualVisibility(entry, hide);
+        await controller.ChangeManyAsync(targets, hide, asynchronous);
     }
-    async void RunAction(Action action)
+    void RunAction(Action action) => RunAsyncAction(() => { action(); return Task.CompletedTask; });
+    async void RunAsyncAction(Func<Task> action)
     {
         if (busy || closing) return;
-        try { action(); await RefreshAsync(); }
-        catch (Exception ex) { status.Text = ex.Message; OpenMainWindow(); MessageBox.Show(this, ex.Message, L.T("operationIncomplete"), MessageBoxButtons.OK, MessageBoxIcon.Information); }
+        EnsureUiContext();
+        busy = true;
+        try { await action(); await RefreshSnapshotAsync(true, operationOwned: true); }
+        catch (Exception ex)
+        {
+            if (!closing && !IsDisposed)
+            { status.Text = ex.Message; OpenMainWindow(); MessageBox.Show(this, ex.Message, L.T("operationIncomplete"), MessageBoxButtons.OK, MessageBoxIcon.Information); }
+        }
+        finally { UpdateTimer(); CompleteOperation(); }
     }
     void EditRules()
     {
+        if (busy || closing) return;
         using var dialog = CreateRulesDialog();
         timer.Stop();
         try { dialog.ShowDialog(this); } finally { UpdateTimer(); }
@@ -327,26 +421,36 @@ internal sealed partial class MainForm : Form
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 54, Padding = new(0, 16, 0, 0), FlowDirection = FlowDirection.RightToLeft };
         var close = UiTheme.Button(L.T("close")); close.DialogResult = DialogResult.Cancel;
         var remove = UiTheme.Button(L.T("removeRulesAndRestoreIcons")); remove.Enabled = false;
-        rules.SelectedIndexChanged += (_, _) => remove.Enabled = rules.SelectedItems.Count > 0;
-        remove.Click += (_, _) =>
+        bool removing = false;
+        dialog.FormClosing += (_, e) => { if (removing) e.Cancel = true; };
+        rules.SelectedIndexChanged += (_, _) => remove.Enabled = !removing && rules.SelectedItems.Count > 0;
+        remove.Click += async (_, _) =>
         {
+            if (busy || removing) return;
+            EnsureUiContext();
+            busy = removing = true; remove.Enabled = close.Enabled = rules.Enabled = false;
             try
             {
                 foreach (var row in rules.SelectedItems.Cast<ListViewItem>().ToList())
                 {
                     if (row.Tag is IconRule iconRule)
                     {
-                        foreach (var entry in controller.Saved.Recovery.Where(iconRule.Matches).ToList()) controller.Show(entry);
+                        await controller.ChangeManyAsync(controller.Saved.Recovery.Where(iconRule.Matches), false);
                         controller.RemoveIconRule(iconRule); rules.Items.Remove(row); continue;
                     }
                     var path = (string)row.Tag!;
                     // Keep the rule available for retry if restoring an icon fails.
-                    foreach (var entry in controller.Saved.Recovery.Where(x => Controller.SamePath(x.Path, path)).ToList()) controller.Show(entry);
+                    await controller.ChangeManyAsync(controller.Saved.Recovery.Where(x => Controller.SamePath(x.Path, path)), false);
                     controller.RemoveRule(path); rules.Items.Remove(row);
                 }
             }
             catch (Exception ex) { MessageBox.Show(dialog, ex.Message, L.T("operationIncomplete")); }
-            finally { empty.Visible = rules.Items.Count == 0; remove.Enabled = rules.SelectedItems.Count > 0; }
+            finally
+            {
+                removing = false; close.Enabled = rules.Enabled = true;
+                empty.Visible = rules.Items.Count == 0; remove.Enabled = rules.SelectedItems.Count > 0;
+                CompleteOperation();
+            }
         };
         buttons.Controls.Add(close); buttons.Controls.Add(remove);
         dialog.Controls.Add(rules); dialog.Controls.Add(empty); dialog.Controls.Add(buttons);
@@ -359,9 +463,12 @@ internal sealed partial class MainForm : Form
     {
         if (disposing)
         {
-            systemIconSession?.Dispose(); systemIconSession = null;
+            if (closing) systemIconSession?.Stop(controller.Saved.RestoreIconsOnExit);
+            else systemIconSession?.Dispose();
+            systemIconSession = null;
             systemIconWatch.Dispose();
             timer.Dispose();
+            imageCache.Dispose();
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnSystemThemeChanged;
             showAllHotkey?.Dispose(); hideRulesHotkey?.Dispose(); mainHotkey?.Dispose();
             if (trayIcon != null) { trayIcon.Visible = false; var icon = trayIcon.Icon; trayIcon.Dispose(); icon?.Dispose(); }

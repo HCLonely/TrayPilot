@@ -24,6 +24,27 @@ The publish output is a single `app/TrayPilot.exe`, including built-in languages
 
 The first two commands test the updated and original methods respectively, reporting the backend and detected controls. Failures are written to the corresponding `.error.txt` file. The third checks the current symbol cache and rejection of corrupt or mismatched PDBs.
 
+### Refresh and resource usage
+
+- Visible automatic refresh performs a full scan every 2.5 seconds. Background rule/recovery maintenance checks known icons every 2.5 seconds and performs full discovery approximately every 10 seconds. Idle background automatic refresh uses 15 seconds. Manual refresh and opening the main window request full discovery; open menus defer scanning.
+- Disabling automatic list refresh does not disable active rules or recovery maintenance. Hidden and minimized windows skip rendering.
+- Rendering compares fields and snapshot bytes directly. State, rule and image changes update existing rows; structural, filter and language changes rebuild the list. Each form owns a bounded 256-entry image cache with deterministic eviction and disposal.
+- Scan-local process metadata and fallback process snapshots are reused. Process path buffers start at 1,024 characters and grow to 32,768 when needed. Icon modifications still validate the live owner.
+- Batch hiding persists recovery records before modifications. Batch restoration saves successful removals together. UI operations, refresh and exit restoration run serially with asynchronous state polling; startup recovery and synchronous diagnostics retain synchronous entry points.
+- Background system-icon sessions skip appearance capture. Closing the dialog with no hidden selections releases the session after restoration acknowledgement, with a three-second wait limit. The native stop path also attempts restoration. Active system-icon management retains 250 ms discovery polling for dynamic controls.
+
+Run these diagnostics using a single-file published executable. Integration diagnostics temporarily create test icons or change system icons and restore them afterwards.
+
+```powershell
+.\app\TrayPilot.exe --self-test .\self-test.txt
+.\app\TrayPilot.exe --refresh-regression-test .\refresh-regression.txt
+.\app\TrayPilot.exe --refresh-performance-test .\refresh-performance.txt
+.\app\TrayPilot.exe --menu-performance-test .\menu-performance.txt
+.\app\TrayPilot.exe --system-icons-ui-test .\system-icons-ui.txt
+```
+
+The refresh benchmark uses 80 seeded 32×32 snapshots, five warmups per workload, 100 unchanged renders, 30 single-row state changes and five full scans. Allocation counts measure cumulative managed allocations on the calling thread, not resident memory or total process CPU. Compare repeated runs of the same harness on the same machine using medians. Regression checks cover cache invalidation and limits, GDI resources, incremental row updates and background scheduling.
+
 ## Add a language pack
 
 Built-in language packs are embedded in the EXE; source packs are in `source/languages/`. Optional JSON files in a `languages/` folder beside the EXE add or override languages. They use UTF-8 JSON:
@@ -48,7 +69,9 @@ Settings, hide rules and recovery records are stored in:
 %LOCALAPPDATA%\TrayPilot\settings.json
 ```
 
-Recovery records are saved before hiding icons. On startup, TrayPilot attempts to restore recorded icons before applying the current rules. It also restores icons before a normal exit; if restoration fails, it retains the records and cancels exit so you can retry.
+Recovery records are saved before hiding icons. On startup, TrayPilot attempts to restore recorded icons before applying the current rules. `RestoreIconsOnExit` defaults to `false`, including settings files that lack the field: quitting keeps icon states and recovery records. Enable **Restore icons on exit** to restore before a normal exit; restoration failures retain the records and cancel that exit for retry. Shutdown/sign-out queries do not restore or close anything. Confirmed session termination follows the same preference without displaying a blocking dialog.
+
+Normal system-icon session cleanup still restores original values. An explicit no-restore exit uses native `stop=2`, stops polling and retains the current visibility. Weak element references and original property values remain in Explorer for a later session to restore, without an active timer or old session handles. Unexpected crashes retain the existing recovery behavior. Windows rebuilding the taskbar or an owning application updating its icons may change visibility after exit.
 
 After a forced termination, reopen TrayPilot and choose **Restore all**, or restart the affected application so it recreates its icons. Do not delete recovery records while icons remain hidden.
 

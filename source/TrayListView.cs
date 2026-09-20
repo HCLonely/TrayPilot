@@ -171,5 +171,5 @@ internal sealed class TrayListView : ListView
 
 internal sealed class TrayListItem(string text, bool matchesRule) : ListViewItem(text)
 {
-    internal bool MatchesRule { get; } = matchesRule;
+    internal bool MatchesRule { get; set; } = matchesRule;
 }

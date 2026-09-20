@@ -62,15 +62,17 @@ internal static partial class Diagnostics
             if (args[0] == "--startup-test" && args.Length == 2) return TestStartup(args[1]);
             if (args[0] == "--package-test" && args.Length == 2) return TestPackage(args[1]);
             if (args[0] == "--menu-performance-test" && args.Length == 2) return TestMenuPerformance(args[1]);
+            if (args[0] == "--refresh-performance-test" && args.Length == 2) return TestRefreshPerformance(args[1]);
+            if (args[0] == "--refresh-regression-test" && args.Length == 2) return TestRefreshRegression(args[1]);
             if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
             if (args[0] == "--verify-task-manager" && args.Length == 2) return TestTaskManager(args[1]);
             if (args[0] == "--icon-selection-test" && args.Length == 2) return TestIconSelection(args[1]);
-            if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en" or "--preview-system-icons-en" or "--preview-system-icons-cn")
+            if (args.Length == 2 && args[0] is "--preview-settings-en" or "--preview-settings-cn" or "--preview-about-en" or "--preview-properties-en" or "--preview-rules-en" or "--preview-system-icons-en" or "--preview-system-icons-cn")
             {
                 const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 var folder = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "preview-state");
                 var previewController = new Controller(folder); previewController.Saved.Language = "en-US";
-                if (args[0] == "--preview-system-icons-cn") previewController.Saved.Language = "zh-CN";
+                if (args[0].EndsWith("-cn")) previewController.Saved.Language = "zh-CN";
                 if (args[0] == "--preview-rules-en") previewController.Saved.HiddenPaths.AddRange(Scanner.Scan().Select(x => x.Path).Distinct().Take(4));
                 if (darkPreview) previewController.Saved.Theme = "dark";
                 if (markedPreview) { previewController.Saved.HiddenPaths = Scanner.Scan().Select(x => x.Path).Distinct().Take(3).ToList(); previewController.Saved.RulesPaused = true; }
@@ -90,7 +92,7 @@ internal static partial class Diagnostics
                     capture.Start();
                     if (args[0] == "--preview-properties-en")
                         typeof(MainForm).GetMethod("ShowProperties", flags)!.Invoke(form, new object[] { Scanner.Scan().First() });
-                    else typeof(MainForm).GetMethod(args[0].StartsWith("--preview-system-icons-") ? "ShowSystemIcons" : args[0] == "--preview-settings-en" ? "ShowSettings" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowAbout", flags)!.Invoke(form, null);
+                    else typeof(MainForm).GetMethod(args[0].StartsWith("--preview-system-icons-") ? "ShowSystemIcons" : args[0].StartsWith("--preview-settings-") ? "ShowSettings" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowAbout", flags)!.Invoke(form, null);
                     form.RequestExit();
                 };
                 Application.Run(form); return 0;
@@ -417,12 +419,13 @@ internal static partial class Diagnostics
                 try
                 {
                     ((CheckBox)dialog.Controls.Find("startup", true).Single()).Checked = true;
+                    ((CheckBox)dialog.Controls.Find("restoreIconsOnExit", true).Single()).Checked = true;
                     if (rejectSave)
                     {
                         var panel = dialog.Controls.OfType<TableLayoutPanel>().Single();
                         panel.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().Single(x => x.Text == L.T("save")).PerformClick();
-                        check(dialog.DialogResult != DialogResult.OK && !startup.Enabled,
-                            "A settings-file save failure rolls back the startup registration.");
+                        check(dialog.DialogResult != DialogResult.OK && !startup.Enabled && !controller.Saved.RestoreIconsOnExit,
+                            "A settings-file save failure rolls back startup and restore-on-exit preferences.");
                     }
                     dialog.CancelButton!.PerformClick();
                 }
@@ -430,7 +433,7 @@ internal static partial class Diagnostics
             };
             timer.Start(); typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(settingsForm, null);
             if (failure != null) throw failure;
-            check(!startup.Enabled, "Canceling Settings does not register the checked startup option.");
+            check(!startup.Enabled && !controller.Saved.RestoreIconsOnExit, "Canceling Settings does not apply startup or restore-on-exit changes.");
             var stateFile = (string)typeof(Controller).GetField("file", flags)!.GetValue(controller)!;
             Directory.CreateDirectory(stateFile + ".tmp"); // Deliberately make the atomic settings write fail.
             rejectSave = true; timer.Start();
@@ -469,6 +472,9 @@ internal static partial class Diagnostics
             var own = Scanner.Scan().Where(x => x.Pid == host.Id).ToList();
             Check(own.Count == 2, "Automatically discover both UID and GUID icons belonging to a separate process (message-only window).");
             Check(own.All(x => x.State == 0), "Both test icons initially displayed.");
+            TestExitPreferences(own, Check, folder);
+            TestSessionEnding(new Controller(Path.Combine(folder, "session-state")), own, Check, Path.Combine(folder, "session-state", "settings.json.tmp"));
+            TestBatchRecovery(controller, own, Check, Path.Combine(folder, "state", "settings.json.tmp"));
             TestInteraction(controller, own, Check, folder);
             TestShellFeatures(controller, own, Check, startup);
             controller.AddRule(own[0].Path); controller.Apply(own);
@@ -628,7 +634,7 @@ internal static partial class Diagnostics
         check(own.All(x => Native.State(x) == 0) && !controller.HasRule(own[0].Path), "Double-click restores icons without changing rules.");
         using var fallback = TrayImages.Create(new TrayEntry { Path = "missing.exe", IconSnapshot = new byte[] { 1, 2, 3 } }, 24);
         check(Alpha(fallback) > 0, "Invalid snapshot and missing executable fall back to a visible application icon.");
-        check(!refreshTimer.Enabled, "Manual actions do not restart disabled automatic refresh.");
+        check(!refreshTimer.Enabled, $"Manual actions do not restart disabled automatic refresh (checked={autoRefresh.Checked}, recovery={controller.Saved.Recovery.Count}, rules={controller.Saved.HiddenPaths.Count + controller.Saved.HiddenIcons.Count}).");
         layoutMode.Checked = true;
         ClickIcon();
         check(Native.State(own[0]) == 1 && Native.State(own[1]) == 0, "Grid double-click hides only the clicked icon.");
@@ -771,6 +777,9 @@ internal static partial class Diagnostics
                     var startupToggle = controls.OfType<CheckBox>().Single(x => x.Name == "startup");
                     check(startupToggle.Checked == startup.Enabled, "Settings read the actual startup registration.");
                     startupToggle.Checked = true;
+                    var restoreOnExit = controls.OfType<CheckBox>().Single(x => x.Name == "restoreIconsOnExit");
+                    check(restoreOnExit.Checked == controller.Saved.RestoreIconsOnExit, "Settings display the saved restore-on-exit preference.");
+                    restoreOnExit.Checked = true;
                     var combo = controls.OfType<ComboBox>().Single(x => x.Name == "language");
                     check(((MainForm.LanguageChoice)combo.SelectedItem!).Code == controller.Saved.Language, "Settings select the actual saved language on opening.");
                     combo.SelectedItem = combo.Items.Cast<MainForm.LanguageChoice>().Single(x => x.Code == "en-US");
@@ -787,7 +796,7 @@ internal static partial class Diagnostics
             settingsTimer.Start();
             typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
             if (settingsError != null) throw settingsError;
-            check(saved && controller.Saved.Language == "en-US" && !controller.Saved.CloseToTray
+            check(saved && controller.Saved.RestoreIconsOnExit && controller.Saved.Language == "en-US" && !controller.Saved.CloseToTray
                 && controller.Saved.ShowAllHotkey == (int)(Keys.Control | Keys.Alt | Keys.K),
                 "Settings dialog saves language, close behavior and a captured key combination.");
             settingsTimer.Start();

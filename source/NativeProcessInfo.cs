@@ -52,14 +52,17 @@ internal static partial class Native
         finally { Marshal.FreeHGlobal(memory); }
     }
 
-    internal static long ProcessStarted(uint pid)
+    internal static long ProcessStarted(uint pid, Func<Dictionary<uint, long>>? fallback = null)
     {
         try { using var process = Process.GetProcessById(checked((int)pid)); return process.StartTime.ToUniversalTime().Ticks; }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or ArgumentException) { }
-        return SystemProcessStarted(pid);
+        return fallback != null ? fallback().GetValueOrDefault(pid) : SystemProcessStarted(pid);
     }
     internal static long SystemProcessStarted(uint pid)
+        => SystemProcessStarts().GetValueOrDefault(pid);
+    internal static Dictionary<uint, long> SystemProcessStarts()
     {
+        var starts = new Dictionary<uint, long>();
         int length = 1024 * 1024;
         for (int attempt = 0; attempt < 5 && length <= 64 * 1024 * 1024; attempt++)
         {
@@ -68,21 +71,21 @@ internal static partial class Native
             {
                 int status = NtQuerySystemInformation(5, memory, length, out int required);
                 if (status == unchecked((int)0xC0000004)) { length = Math.Max(length * 2, required); continue; }
-                if (status != 0) return 0;
+                if (status != 0) return starts;
                 int size = Marshal.SizeOf<ProcessInfo>();
                 for (int offset = 0; offset <= required - size;)
                 {
                     var info = Marshal.PtrToStructure<ProcessInfo>(memory + offset);
-                    if (info.Pid == (nint)pid)
-                        return info.CreateTime > 0 ? DateTime.FromFileTimeUtc(info.CreateTime).Ticks : 0;
+                    if ((ulong)info.Pid <= uint.MaxValue && info.CreateTime > 0)
+                        starts[(uint)info.Pid] = DateTime.FromFileTimeUtc(info.CreateTime).Ticks;
                     if (info.Next < size || info.Next > required - offset) break;
                     offset += (int)info.Next;
                 }
-                return 0;
+                return starts;
             }
-            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException or ArgumentOutOfRangeException) { return 0; }
+            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException or ArgumentOutOfRangeException) { return starts; }
             finally { Marshal.FreeHGlobal(memory); }
         }
-        return 0;
+        return starts;
     }
 }

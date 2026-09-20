@@ -128,17 +128,17 @@ internal sealed partial class MainForm
             var entry = active[0];
             bool shown = active.All(x => x.State == 0);
             var row = new ToolStripMenuItem(entry.Name) { Checked = shown, CheckOnClick = false, Enabled = !busy,
-                Image = TrayImages.Create(entry with { State = shown ? 0 : 1 }, 20, allowFileAccess: false), Tag = entry.Path,
+                Image = imageCache.Create(entry with { State = shown ? 0 : 1 }, 20, allowFileAccess: false), Tag = entry.Path,
                 ToolTipText = entry.Path + "\n" + L.T(shown ? "clickToHideIconsHint" : "clickToShowIconsHint") };
             void ToggleGroup(object? sender, EventArgs args)
             {
                 trayMenu.Close();
-                RunAction(() =>
+                RunAsyncAction(async () =>
                 {
                     var current = entries.Where(x => string.Equals(x.Path, entry.Path, StringComparison.OrdinalIgnoreCase) && Scanner.SameOwner(x))
                         .Select(x => x with { State = Native.State(x) }).Where(x => x.State is 0 or 1).ToList();
                     if (current.Count == 0) throw new IOException(L.T("iconUnavailableMessage"));
-                    ChangePaths(new[] { entry.Path }, current.All(x => x.State == 0));
+                    await ChangePathsAsync(new[] { entry.Path }, current.All(x => x.State == 0));
                 });
             }
             if (active.Count == 1) row.Click += ToggleGroup;
@@ -230,6 +230,7 @@ internal sealed partial class MainForm
         if (IsDisposed) return;
         Show(); if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
         Activate(); Native.SetForegroundWindow(Handle);
+        if (initialized) _ = RefreshAsync();
     }
 
     internal void RequestExit()
@@ -271,11 +272,12 @@ internal sealed partial class MainForm
     void ShowSettings()
     {
         trayMenu.Close();
-        using var dialog = new Form { Text = L.T("settings"), Size = new(800, 750), FormBorderStyle = FormBorderStyle.FixedDialog,
+        using var dialog = new Form { Text = L.T("settings"), Size = new(800, 788), FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = Font, Padding = new(24), BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink };
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 12 };
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new(16), Tag = "surface", ColumnCount = 2, RowCount = 13 };
         foreach (int height in new[] { 42, 42, 38, 38, 38, 46, 46, 46, 80, 44, 48 }) panel.RowStyles.Add(new(SizeType.Absolute, height));
         panel.RowStyles.Insert(9, new RowStyle(SizeType.Absolute, 48));
+        panel.RowStyles.Insert(5, new RowStyle(SizeType.Absolute, 38));
         panel.ColumnStyles.Add(new(SizeType.Absolute, 300)); panel.ColumnStyles.Add(new(SizeType.Percent, 100));
         var packs = L.Packs();
         var languages = new ThemeComboBox { Name = "language", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
@@ -285,6 +287,7 @@ internal sealed partial class MainForm
         themes.Items.AddRange(new[] { new LanguageChoice("system", L.T("followSystem")), new LanguageChoice("light", L.T("lightTheme")), new LanguageChoice("dark", L.T("darkTheme")) });
         themes.SelectedIndex = Math.Max(0, themes.Items.Cast<LanguageChoice>().ToList().FindIndex(x => x.Code == controller.Saved.Theme));
         var closeToTray = new CheckBox { Text = L.T("closeToTray"), Checked = controller.Saved.CloseToTray, AutoSize = true };
+        var restoreOnExit = new CheckBox { Name = "restoreIconsOnExit", Text = L.T("restoreIconsOnExit"), Checked = controller.Saved.RestoreIconsOnExit, AutoSize = true };
         var showTrayIcon = new CheckBox { Text = L.T("showOwnTrayIcon"), Checked = controller.Saved.ShowTrayIcon, AutoSize = true };
         var autoStart = new CheckBox { Name = "startup", Text = L.T("startWithWindows"), AutoSize = true };
         string? startupError = null;
@@ -300,6 +303,7 @@ internal sealed partial class MainForm
         panel.Controls.Add(closeToTray, 0, 2); panel.SetColumnSpan(closeToTray, 2);
         panel.Controls.Add(showTrayIcon, 0, 3); panel.SetColumnSpan(showTrayIcon, 2);
         panel.Controls.Add(autoStart, 0, 4); panel.SetColumnSpan(autoStart, 2);
+        panel.Controls.Add(restoreOnExit, 0, 5); panel.SetColumnSpan(restoreOnExit, 2);
         for (int i = 0; i < 3; i++)
         {
             int index = i;
@@ -311,17 +315,17 @@ internal sealed partial class MainForm
                 e.SuppressKeyPress = true; e.Handled = true;
                 if (GlobalHotkey.Valid(e.KeyData)) { keys[index] = e.KeyData; input.Text = new KeysConverter().ConvertToString(e.KeyData); }
             };
-            panel.Controls.Add(toggle, 0, 5 + i); panel.Controls.Add(input, 1, 5 + i);
+            panel.Controls.Add(toggle, 0, 6 + i); panel.Controls.Add(input, 1, 6 + i);
         }
         var help = new Label { Text = L.T("rulesAndHotkeysHelp"), AutoSize = true, MaximumSize = new(660, 0), ForeColor = UiTheme.Muted };
         var error = new Label { Text = startupError ?? "", AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(660, 0) };
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
         var save = UiTheme.Button(L.T("save")); var cancel = UiTheme.Button(L.T("cancel")); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save); buttons.Controls.Add(cancel);
-        panel.Controls.Add(help, 0, 8); panel.SetColumnSpan(help, 2);
-        panel.Controls.Add(new Label { Text = L.F("currentVersion", UpdateChecker.CurrentVersionText), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 9);
+        panel.Controls.Add(help, 0, 9); panel.SetColumnSpan(help, 2);
+        panel.Controls.Add(new Label { Text = L.F("currentVersion", UpdateChecker.CurrentVersionText), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 10);
         var checkUpdate = UiTheme.Button(L.T("checkForUpdates")); checkUpdate.Name = "checkForUpdates";
-        panel.Controls.Add(checkUpdate, 1, 9);
+        panel.Controls.Add(checkUpdate, 1, 10);
         using var updateCancellation = new CancellationTokenSource();
         var updateToken = updateCancellation.Token;
         dialog.FormClosed += (_, _) => updateCancellation.Cancel();
@@ -356,8 +360,8 @@ internal sealed partial class MainForm
                 { checkUpdate.Enabled = true; checkUpdate.Text = L.T("checkForUpdates"); }
             }
         };
-        panel.Controls.Add(error, 0, 10); panel.SetColumnSpan(error, 2);
-        panel.Controls.Add(buttons, 0, 11); panel.SetColumnSpan(buttons, 2);
+        panel.Controls.Add(error, 0, 11); panel.SetColumnSpan(error, 2);
+        panel.Controls.Add(buttons, 0, 12); panel.SetColumnSpan(buttons, 2);
         dialog.Controls.Add(panel); dialog.Controls.Add(UiTheme.Heading(L.T("settings"), L.T("settingsPageDescription"), Font));
         dialog.CancelButton = cancel;
         save.Click += (_, _) =>
@@ -366,7 +370,7 @@ internal sealed partial class MainForm
             if (active.Any(x => !GlobalHotkey.Valid(x)) || active.Distinct().Count() != active.Count)
             { error.Text = L.T("invalidHotkeyMessage"); return; }
             var old = new { controller.Saved.MainHotkeyEnabled, controller.Saved.MainHotkey, controller.Saved.ShowAllHotkeyEnabled, controller.Saved.ShowAllHotkey,
-                controller.Saved.HideRulesHotkeyEnabled, controller.Saved.HideRulesHotkey, controller.Saved.Theme, controller.Saved.Language, controller.Saved.CloseToTray, controller.Saved.ShowTrayIcon };
+                controller.Saved.HideRulesHotkeyEnabled, controller.Saved.HideRulesHotkey, controller.Saved.Theme, controller.Saved.Language, controller.Saved.CloseToTray, controller.Saved.ShowTrayIcon, controller.Saved.RestoreIconsOnExit };
             void Restore()
             {
                 controller.Saved.MainHotkeyEnabled = old.MainHotkeyEnabled; controller.Saved.MainHotkey = old.MainHotkey;
@@ -374,6 +378,7 @@ internal sealed partial class MainForm
                 controller.Saved.HideRulesHotkeyEnabled = old.HideRulesHotkeyEnabled; controller.Saved.HideRulesHotkey = old.HideRulesHotkey;
                 controller.Saved.Theme = old.Theme; controller.Saved.Language = old.Language;
                 controller.Saved.CloseToTray = old.CloseToTray; controller.Saved.ShowTrayIcon = old.ShowTrayIcon;
+                controller.Saved.RestoreIconsOnExit = old.RestoreIconsOnExit;
                 RegisterShortcuts(); UpdateStatus();
             }
             controller.Saved.MainHotkeyEnabled = enabled[0]; controller.Saved.MainHotkey = (int)keys[0];
@@ -392,6 +397,7 @@ internal sealed partial class MainForm
                 controller.Saved.Language = ((LanguageChoice)languages.SelectedItem!).Code;
                 controller.Saved.Theme = ((LanguageChoice)themes.SelectedItem!).Code;
                 controller.Saved.CloseToTray = closeToTray.Checked; controller.Saved.ShowTrayIcon = showTrayIcon.Checked;
+                controller.Saved.RestoreIconsOnExit = restoreOnExit.Checked;
                 controller.Save();
             }
             catch (Exception ex)
@@ -413,6 +419,7 @@ internal sealed partial class MainForm
 
     protected override void WndProc(ref Message message)
     {
+        if (message.Msg == 0x0016 && message.WParam != 0) EndWindowsSession(); // WM_ENDSESSION
         if (message.Msg == 0x0312 && showAllHotkey?.Matches(message.WParam) == true) { _ = ApplyVisibilityPresetAsync(false); return; }
         if (message.Msg == 0x0312 && mainHotkey?.Matches(message.WParam) == true) { OpenMainWindow(); return; }
         if (message.Msg == 0x0312 && hideRulesHotkey?.Matches(message.WParam) == true) { _ = ApplyVisibilityPresetAsync(true); return; }

@@ -40,7 +40,7 @@ Once you add a hide rule, TrayPilot automatically hides matching icons while it 
 - **Show an icon temporarily**: restore it manually to keep it visible for this session. Choose **Hide matching icons** to apply the rules again.
 - **Restore all**: restore icons hidden by TrayPilot while keeping application hide rules.
 - **Remove a rule permanently**: delete its entry in **Hide rules**.
-- **Exit**: restore icons hidden by TrayPilot and quit, keeping application rules for the next launch.
+- **Exit**: quit without restoring hidden icons by default. Enable **Restore icons on exit** in Settings to restore them when quitting. Rules and remaining recovery records are kept for the next launch.
 
 To hide just one icon from an application that already has an application-wide rule, remove that rule first, then choose **Auto-hide only this icon** for the desired icon.
 
@@ -54,6 +54,7 @@ In **Settings**, you can:
 
 - Enable **Start with Windows** to run when you sign in, or toggle it directly from the tray menu.
 - Choose whether closing the window keeps TrayPilot running or exits.
+- Enable **Restore icons on exit** (off by default) to restore application and system icons when quitting, including shutdown or sign-out.
 - Switch between light, dark or system appearance, and Simplified Chinese / English.
 - Show or hide TrayPilot's own tray icon.
 - Enable and customize hotkeys.

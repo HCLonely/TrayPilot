@@ -35,7 +35,7 @@ internal static partial class Native
     [DllImport("user32.dll", SetLastError = true)] internal static extern bool UnregisterHotKey(nint window, int id);
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(nint window);
     [DllImport("kernel32.dll")] internal static extern nint OpenProcess(uint access, bool inherit, uint pid);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] internal static extern bool QueryFullProcessImageNameW(nint process, uint flags, StringBuilder path, ref uint size);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern bool QueryFullProcessImageNameW(nint process, uint flags, StringBuilder path, ref uint size);
     [DllImport("kernel32.dll")] internal static extern bool CloseHandle(nint handle);
     [DllImport("shell32.dll")] internal static extern int SHGetKnownFolderPath(ref Guid id, uint flags, nint token, out nint path);
 
@@ -54,7 +54,17 @@ internal static partial class Native
     {
         var p = OpenProcess(0x1000, false, pid);
         if (p == 0) return SystemProcessPath(pid);
-        try { var text = new StringBuilder(32768); uint length = 32768; return QueryFullProcessImageNameW(p, 0, text, ref length) ? text.ToString() : SystemProcessPath(pid); }
+        try
+        {
+            var text = new StringBuilder(1024); uint length = (uint)text.Capacity;
+            if (QueryFullProcessImageNameW(p, 0, text, ref length)) return text.ToString();
+            if (Marshal.GetLastWin32Error() == 122) // ERROR_INSUFFICIENT_BUFFER: retain long-path support.
+            {
+                text.EnsureCapacity(32768); length = (uint)text.Capacity;
+                if (QueryFullProcessImageNameW(p, 0, text, ref length)) return text.ToString();
+            }
+            return SystemProcessPath(pid);
+        }
         finally { CloseHandle(p); }
     }
 }

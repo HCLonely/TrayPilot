@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#include <unordered_map>
 
 using namespace winrt;
 using namespace Windows::UI::Xaml;
@@ -29,7 +30,9 @@ struct Shared {
     LONG reserved[2];
     ULONG64 symbols[4];
     IconAppearance icons[12];
+    volatile LONG appearanceRequested;
 };
+static_assert(offsetof(Shared, appearanceRequested)==2016);
 struct Session {
     HANDLE mapping{}, owner{};
     Shared* data{};
@@ -41,6 +44,9 @@ struct Original {
     Windows::Foundation::IInspectable local{nullptr};
     bool touched=true;
 };
+// No active timer or owner handle is retained after an intentional no-restore exit.
+// Keep only weak element identities and their original values for a later session.
+thread_local std::unordered_map<HWND,std::vector<Original>> preservedOriginals;
 FrameworkElement TaskbarRoot(HWND window,Shared* data);
 struct Context {
     std::shared_ptr<Session> session;
@@ -140,7 +146,7 @@ struct Context {
         if(kind) {
             found|=kind;
             IconAppearance appearance{};
-            try { ReadAppearance(element,kind,appearance); } catch(...) { /* Appearance is optional. */ }
+            try { if(session->data->appearanceRequested) ReadAppearance(element,kind,appearance); } catch(...) { /* Appearance is optional. */ }
             for(int i=0;i<12;i++) if(kind&(1<<i)) icons[i]=appearance;
             if(kind==(16|32)) sharedMicrophoneLocation=true;
             // A combined privacy indicator must remain unless both are requested.
@@ -157,7 +163,9 @@ struct Context {
         try {
             auto data=session->data;
             if(session->stopped()) {
-                Restore(); KillTimer(nullptr,timer); timer=0;
+                if(data->stop==2) preservedOriginals[window]=std::move(originals);
+                else Restore();
+                KillTimer(nullptr,timer); timer=0;
                 InterlockedDecrement(&data->contexts);
                 if(data->contexts==0) data->alive=2;
             } else {
@@ -243,6 +251,12 @@ LRESULT CALLBACK BootstrapHook(int code,WPARAM w,LPARAM l) {
                 if(!frame) throw hresult_error(E_NOTIMPL);
                 auto context=std::make_unique<Context>();
                 context->session=request->session; context->root=make_weak(frame); context->window=request->window;
+                for(auto& previous:contexts)
+                    if(previous->window==request->window && previous->session->stopped()) previous->Tick();
+                std::erase_if(contexts,[](auto const& previous){return previous->timer==0;});
+                if(auto saved=preservedOriginals.find(request->window); saved!=preservedOriginals.end()) {
+                    context->originals=std::move(saved->second); preservedOriginals.erase(saved);
+                }
                 context->timer=SetTimer(nullptr,0,250,Tick);
                 if(!context->timer) throw_last_error();
                 InterlockedIncrement(&request->session->data->contexts);

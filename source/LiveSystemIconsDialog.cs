@@ -6,6 +6,7 @@ internal sealed partial class MainForm
     internal SystemIconSession? systemIconSessionForDiagnostics => systemIconSession is { Ticks: > 0 } ? systemIconSession : null;
     bool systemIconsConnecting;
     bool systemIconsChanging;
+    bool systemIconDialogOpen, systemIconsReleasing;
     int systemIconsRequested;
     readonly System.Windows.Forms.Timer systemIconWatch = new() { Interval = 5000 };
     void SetupSystemIconWatch()
@@ -16,7 +17,9 @@ internal sealed partial class MainForm
     }
     async Task ApplySavedSystemIcons()
     {
-        if (systemIconsRequested == 0 || systemIconsConnecting || systemIconsChanging || closing || IsDisposed) return;
+        if (closing || IsDisposed) return;
+        if (systemIconsRequested == 0) { await ReleaseUnusedSystemIcons(); return; }
+        if (systemIconsConnecting || systemIconsChanging) return;
         if (systemIconSession is { Ticks: > 0, Error: 0, IsDisposed: false } current &&
             current.Pid == SystemIconSession.ExplorerPid() && current.Requested == systemIconsRequested &&
             current.Legacy == controller.Saved.UseLegacySystemIconDiscovery) return;
@@ -28,6 +31,23 @@ internal sealed partial class MainForm
         controller.SetHiddenSystemIcons(0);
         systemIconsRequested = 0;
         systemIconSession?.Set(0);
+        _ = ReleaseUnusedSystemIcons();
+    }
+    async Task ReleaseUnusedSystemIcons()
+    {
+        if (systemIconsRequested != 0 || systemIconDialogOpen || systemIconsConnecting || systemIconsChanging ||
+            systemIconsReleasing || systemIconSession is not { IsDisposed: false } session) return;
+        systemIconsReleasing = true;
+        try
+        {
+            int request = session.Set(0);
+            for (int i = 0; i < 30 && !session.IsDisposed && session.Acknowledged != request && session.Error == 0; i++)
+                await Task.Delay(100);
+            if (systemIconsRequested == 0 && !systemIconDialogOpen && !systemIconsConnecting && !systemIconsChanging &&
+                ReferenceEquals(systemIconSession, session))
+            { session.Dispose(); systemIconSession = null; }
+        }
+        finally { systemIconsReleasing = false; }
     }
     async Task<SystemIconSession> ConnectSystemIcons()
     {
@@ -39,9 +59,11 @@ internal sealed partial class MainForm
         {
             if (systemIconSession != null) { systemIconSession.Dispose(); systemIconSession = null; await Task.Delay(500); }
             bool legacy = controller.Saved.UseLegacySystemIconDiscovery;
-            var session = await Task.Run(() => new SystemIconSession(legacy));
-            if (IsDisposed || closing) { session.Dispose(); throw new ObjectDisposedException(nameof(MainForm)); }
+            int initialMask = systemIconsRequested;
+            var session = await Task.Run(() => new SystemIconSession(legacy, initialMask));
+            if (IsDisposed || closing) { session.Stop(!closing || controller.Saved.RestoreIconsOnExit); throw new ObjectDisposedException(nameof(MainForm)); }
             systemIconSession = session;
+            session.SetAppearanceCapture(systemIconDialogOpen);
             for (int i = 0; i < 40 && session.Ticks == 0 && session.Error == 0; i++) await Task.Delay(100);
             if (session.Ticks == 0 || session.Error != 0)
             {
@@ -51,10 +73,11 @@ internal sealed partial class MainForm
             if (systemIconsRequested != 0) session.Set(systemIconsRequested);
             return session;
         }
-        finally { systemIconsConnecting = false; }
+        finally { systemIconsConnecting = false; _ = ReleaseUnusedSystemIcons(); }
     }
     void ShowSystemIcons()
     {
+        EnsureUiContext();
         var existing = Application.OpenForms.Cast<Form>().FirstOrDefault(x => x.Name == "LiveSystemIconsDialog");
         if (existing != null) { existing.Activate(); return; }
         using var dialog = new Form { Name = "LiveSystemIconsDialog", Text = L.T("systemIcons"), ClientSize = new(840, 650),
@@ -204,6 +227,15 @@ internal sealed partial class MainForm
         using var poll = new System.Windows.Forms.Timer { Interval = 500 };
         poll.Tick += (_, _) => UpdateRows(); dialog.Shown += async (_, _) => { poll.Start(); await Connect(); };
         dialog.FormClosing += (_, e) => { if (operating && !systemIconsConnecting) e.Cancel = true; };
-        dialog.CancelButton = close; UiTheme.Apply(dialog); UiTheme.Apply(menu); UpdateRows(); dialog.ShowDialog(this);
+        dialog.CancelButton = close; UiTheme.Apply(dialog); UiTheme.Apply(menu); UpdateRows();
+        systemIconDialogOpen = true;
+        systemIconSession?.SetAppearanceCapture(true);
+        try { dialog.ShowDialog(this); }
+        finally
+        {
+            poll.Stop(); systemIconDialogOpen = false;
+            systemIconSession?.SetAppearanceCapture(false);
+            _ = ReleaseUnusedSystemIcons();
+        }
     }
 }

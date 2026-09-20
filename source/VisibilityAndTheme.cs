@@ -5,6 +5,11 @@ internal sealed partial class MainForm
     void CompleteOperation()
     {
         busy = false;
+        if (exitRequested && !closing && !IsDisposed)
+        {
+            BeginInvoke(() => { if (!busy && !closing && !IsDisposed && exitRequested) _ = ExitAsync(); });
+            return;
+        }
         if (pendingVisibilityPreset == null || closing || IsDisposed) return;
         BeginInvoke(() =>
         {
@@ -16,6 +21,7 @@ internal sealed partial class MainForm
     {
         if (closing || IsDisposed) return;
         if (busy) { pendingVisibilityPreset = hideMatches; return; }
+        EnsureUiContext();
         pendingVisibilityPreset = null; busy = true;
         try
         {
@@ -29,10 +35,10 @@ internal sealed partial class MainForm
             if (!hideMatches && trayIcon != null) trayIcon.Visible = true;
             try
             {
-                if (hideMatches) { controller.ResetManualVisibility(); controller.Apply(entries); }
+                if (hideMatches) { controller.ResetManualVisibility(); await controller.ApplyAsync(entries); }
                 else
                 {
-                    foreach (var entry in entries.Where(x => x.State == 1)) controller.Show(entry);
+                    await controller.ChangeManyAsync(entries.Where(x => x.State == 1), false);
                     RestoreLiveSystemIcons();
                 }
             }
@@ -40,7 +46,7 @@ internal sealed partial class MainForm
             UpdateStatus();
         }
         catch (Exception ex) { status.Text = L.T("operationIncomplete") + ": " + ex.Message; }
-        finally { CompleteOperation(); }
+        finally { CompleteOperation(); UpdateTimer(); }
     }
     void ApplyTheme()
     {

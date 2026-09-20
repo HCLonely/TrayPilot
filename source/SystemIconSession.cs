@@ -26,6 +26,7 @@ internal sealed class SystemIconSession : IDisposable
     internal int Error => view.ReadInt32(28);
     internal int Acknowledged => view.ReadInt32(44);
     internal int Requested => view.ReadInt32(8);
+    internal void SetAppearanceCapture(bool enabled) => view.Write(2016, enabled ? 1 : 0);
     internal bool SharedMicrophoneLocation => view.ReadInt32(56) != 0;
     internal (string Text, string Font)[] ReadAppearances()
     {
@@ -51,8 +52,9 @@ internal sealed class SystemIconSession : IDisposable
         Native.GetWindowThreadProcessId(window, out var pid);
         return pid;
     }
-    internal SystemIconSession(bool legacy = false)
+    internal SystemIconSession(bool legacy = false, int initialMask = 0)
     {
+        if ((initialMask & ~SystemIconCatalog.All) != 0) throw new ArgumentOutOfRangeException(nameof(initialMask));
         Legacy = legacy;
         if (!Environment.Is64BitProcess || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException(L.T("systemNativeArchitecture"));
@@ -64,6 +66,8 @@ internal sealed class SystemIconSession : IDisposable
         mapping = MemoryMappedFile.CreateNew(name, 4096);
         view = mapping.CreateViewAccessor();
         view.Write(0, 1); view.Write(4, Environment.ProcessId);
+        view.Write(8, initialMask);
+        SetAppearanceCapture(true);
         try
         {
             library = NativeLibrary.Load(dll);
@@ -88,11 +92,13 @@ internal sealed class SystemIconSession : IDisposable
     }
     internal int IdentifyGlyph(char glyph) => Marshal.GetDelegateForFunctionPointer<IdentifyGlyphDelegate>(
         NativeLibrary.GetExport(library, "IdentifyGlyph"))(glyph);
-    public void Dispose()
+    public void Dispose() => Stop(restore: true);
+    internal void Stop(bool restore)
     {
         if (disposed) return;
         disposed = true;
-        view.Write(8, 0); view.Write(12, 1);
+        if (restore) view.Write(8, 0);
+        view.Write(12, restore ? 1 : 2);
         // The helper also watches our process handle and restores after a crash.
         view.Dispose(); mapping.Dispose();
         if (library != 0) { NativeLibrary.Free(library); library = 0; }

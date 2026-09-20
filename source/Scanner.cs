@@ -40,7 +40,7 @@ internal static class Scanner
         if (string.IsNullOrWhiteSpace(value)) value = System.IO.Path.GetFileNameWithoutExtension(path);
         return Names[path] = value;
     }
-    internal static bool SameOwner(TrayEntry entry)
+    internal static bool SameOwner(TrayEntry entry, Dictionary<uint, (string Path, long Start)>? processes = null)
     {
         uint pid = entry.Pid;
         if (entry.Guid == Guid.Empty)
@@ -48,8 +48,12 @@ internal static class Scanner
             if (!Native.IsWindow((nint)entry.Window)) return false;
             Native.GetWindowThreadProcessId((nint)entry.Window, out pid);
         }
-        if (pid != entry.Pid || !string.Equals(Native.ProcessPath(pid), entry.Path, StringComparison.OrdinalIgnoreCase)) return false;
-        return entry.Started > 0 && Native.ProcessStarted(pid) == entry.Started;
+        if (pid != entry.Pid) return false;
+        if (processes == null)
+            return entry.Started > 0 && string.Equals(Native.ProcessPath(pid), entry.Path, StringComparison.OrdinalIgnoreCase) && Native.ProcessStarted(pid) == entry.Started;
+        if (!processes.TryGetValue(pid, out var info))
+            processes[pid] = info = (Native.ProcessPath(pid), Native.ProcessStarted(pid));
+        return entry.Started > 0 && info.Start == entry.Started && string.Equals(info.Path, entry.Path, StringComparison.OrdinalIgnoreCase);
     }
     internal static List<TrayEntry> Scan()
     {
@@ -61,13 +65,15 @@ internal static class Scanner
         while ((message = Native.FindWindowExW(-3, message, null, null)) != 0 && seen.Add(message))
         { windows.Add(message); Native.EnumChildWindows(message, child, 0); }
         var processes = new Dictionary<uint, (string Path, long Start)>();
+        Dictionary<uint, long>? fallbackStarts = null;
+        Dictionary<uint, long> LoadFallbackStarts() => fallbackStarts ??= Native.SystemProcessStarts();
         var owners = new Dictionary<string, List<(nint Window, uint Pid, long Start)>>(StringComparer.OrdinalIgnoreCase);
         foreach (var window in windows)
         {
             Native.GetWindowThreadProcessId(window, out var pid);
             if (!processes.TryGetValue(pid, out var info))
             {
-                info = (Native.ProcessPath(pid), Native.ProcessStarted(pid)); processes[pid] = info;
+                info = (Native.ProcessPath(pid), Native.ProcessStarted(pid, LoadFallbackStarts)); processes[pid] = info;
             }
             if (info.Path.Length == 0 || info.Start == 0) continue;
             if (!owners.TryGetValue(info.Path, out var list)) owners[info.Path] = list = new();
@@ -98,6 +104,8 @@ internal static class Scanner
             // never replace the cached UID, which may also still be registered.
             bool taskManager = guid == Guid.Empty && Controller.SamePath(path,
                 System.IO.Path.Combine(Environment.SystemDirectory, "Taskmgr.exe"));
+            byte[]? snapshot = null;
+            bool snapshotRead = false;
             foreach (var owner in shell ? list.Where(x => Native.WindowClass(x.Window) == "SystemTray_Main") : list)
             {
                 var ids = taskManager && uid != 0 && Native.WindowClass(owner.Window) == "TrayiconMessageWindow"
@@ -105,12 +113,12 @@ internal static class Scanner
                 foreach (var iconId in ids)
                 {
                     var entry = new TrayEntry { Path = path, Name = name, Tooltip = tooltip,
-                        Window = owner.Window, Pid = owner.Pid, Started = owner.Start, Id = iconId, Guid = guid,
-                        IconSnapshot = key.GetValue("IconSnapshot") as byte[] };
+                        Window = owner.Window, Pid = owner.Pid, Started = owner.Start, Id = iconId, Guid = guid };
                     int state = Native.State(entry);
                     // On tested Windows 11 25H2: S_OK = displayed (possibly in overflow), S_FALSE = NIS_HIDDEN.
                     if (state is not (0 or 1)) continue;
-                    result[entry.Key] = entry with { State = state };
+                    if (!snapshotRead) { snapshot = key.GetValue("IconSnapshot") as byte[]; snapshotRead = true; }
+                    result[entry.Key] = entry with { State = state, IconSnapshot = snapshot };
                 }
                 if (guid != Guid.Empty && result.ContainsKey(guid.ToString())) break;
             }

@@ -104,14 +104,21 @@ internal static partial class Diagnostics
             catch (Exception ex) { failure = ex; }
             finally { dialog.Close(); }
         };
-        form.Shown += (_, _) =>
+        form.Shown += async (_, _) =>
         {
-            driver.Start(); typeof(MainForm).GetMethod("ShowSystemIcons", flags)!.Invoke(form, null); form.RequestExit();
+            try
+            {
+                driver.Start(); typeof(MainForm).GetMethod("ShowSystemIcons", flags)!.Invoke(form, null);
+                for (int i = 0; i < 50 && form.systemIconSessionForDiagnostics != null; i++) await Task.Delay(100);
+                Check(form.systemIconSessionForDiagnostics == null, "Closing an unused system-icon dialog releases its native session");
+            }
+            catch (Exception ex) { failure ??= ex; }
+            finally { form.RequestExit(); }
         };
         Application.Run(form);
         if (failure == null)
         {
-            try { CheckSystemIconRestart(folder, log); }
+            try { CheckSystemIconRestart(folder, log); CheckSystemIconExitPreference(folder, log); }
             catch (Exception ex) { failure = ex; }
         }
         File.WriteAllLines(report, log);
@@ -123,6 +130,7 @@ internal static partial class Diagnostics
     {
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var controller = new Controller(folder);
+        controller.Saved.RestoreIconsOnExit = true;
         controller.SetHiddenSystemIcons(2 | 4); // Network plus a possibly absent battery indicator.
         // A failed save must preserve the previous preference in memory and on disk.
         Directory.CreateDirectory(Path.Combine(folder, "settings.json.tmp"));
@@ -145,11 +153,22 @@ internal static partial class Diagnostics
             {
                 try
                 {
-                    if (++attempts > 300) throw new IOException("Startup preference application timed out");
+                    if (++attempts > 300) throw new IOException($"Startup preference application timed out (launch={launch}, clearing={clearing})");
                     var session = restarted.systemIconSessionForDiagnostics;
+                    if (clearing && session == null)
+                    {
+                        if (new Controller(folder).Saved.HiddenSystemIcons != 0) throw new IOException("Restore all did not clear saved preferences");
+                        timer.Stop(); restarted.RequestExit(); return;
+                    }
                     if (session == null || session.Error != 0) return;
                     if (!clearing && (session.Requested != 6 || (session.Hidden & 2) == 0)) return;
-                    if (launch == 0) { timer.Stop(); restarted.RequestExit(); return; }
+                    if (launch == 0)
+                    {
+                        if (session.ReadAppearances().Any(x => !string.IsNullOrEmpty(x.Text)))
+                            throw new IOException("Background sessions should not collect icon appearances");
+                        log.Add("PASS Background system-icon management skips appearance collection");
+                        timer.Stop(); restarted.RequestExit(); return;
+                    }
                     if (!clearing)
                     {
                         typeof(MainForm).GetMethod("RestoreLiveSystemIcons", flags)!.Invoke(restarted, null);
@@ -169,6 +188,52 @@ internal static partial class Diagnostics
         }
         log.Add("PASS Startup applies saved icons without opening the system-icons dialog; exit preserves preferences; next launch reapplies them");
         log.Add("PASS Restore all clears saved system-icon choices");
+    }
+    static void CheckSystemIconExitPreference(string folder, List<string> log)
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        void WaitFor(Func<bool> ready)
+        {
+            for (int i = 0; i < 80; i++) { if (ready()) return; Thread.Sleep(100); }
+            throw new IOException("System-icon exit preference test timed out");
+        }
+        using var observer = new SystemIconSession();
+        WaitFor(() => observer.Ticks > 0 && observer.Error == 0);
+        int bit = SystemIconCatalog.Items.Select(x => x.Mask).First(x => (observer.Found & ~observer.Hidden & x) != 0);
+        try
+        {
+            var controller = new Controller(Path.Combine(folder, "no-restore"));
+            using (var form = new MainForm(controller, initialize: false))
+            {
+                _ = form.Handle;
+                var session = new SystemIconSession(initialMask: bit);
+                typeof(MainForm).GetField("systemIconSession", flags)!.SetValue(form, session);
+                WaitFor(() => (observer.Hidden & bit) != 0);
+                form.RequestExit();
+                Thread.Sleep(600);
+                if (!form.IsDisposed || (observer.Hidden & bit) == 0) throw new IOException("Default exit restored a system icon");
+                log.Add("PASS Default exit stops native management without restoring the hidden system icon");
+            }
+            controller = new Controller(Path.Combine(folder, "restore"));
+            controller.Saved.RestoreIconsOnExit = true;
+            using (var form = new MainForm(controller, initialize: false))
+            {
+                _ = form.Handle;
+                var session = new SystemIconSession(initialMask: bit);
+                typeof(MainForm).GetField("systemIconSession", flags)!.SetValue(form, session);
+                WaitFor(() => session.Ticks > 0 && (session.Hidden & bit) != 0);
+                form.RequestExit();
+                WaitFor(() => (observer.Hidden & bit) == 0);
+                if (!form.IsDisposed) throw new IOException("Restoring exit did not close the window");
+                log.Add("PASS Opt-in exit restores system icons, including originals preserved by an earlier exit");
+            }
+        }
+        finally
+        {
+            using var cleanup = new SystemIconSession();
+            int request = cleanup.Set(0);
+            WaitFor(() => cleanup.Acknowledged == request && cleanup.Error == 0);
+        }
     }
 
     static void CheckSelectionRendering(string folder, List<string> log)
