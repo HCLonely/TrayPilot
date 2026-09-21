@@ -6,13 +6,13 @@
 
 ### 本地构建
 
-在 Windows 上安装 Visual Studio 2022 C++ x64 构建工具和 Windows SDK，以及 .NET 8 SDK 或支持 `net8.0-windows` 的更新 SDK，在仓库根目录执行：
+在 Windows 上安装 Visual Studio 2022 C++ x64 构建工具和 Windows SDK，以及 .NET 10 SDK 或支持 `net10.0-windows` 的更新 SDK，在仓库根目录执行：
 
 ```powershell
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-发布输出为单个 `app/TrayPilot.exe`，包含内置语言包与原生模块。完整版包含 .NET（原生运行时组件在启动时自动释放）；精简版需要 .NET 8 Desktop Runtime x64。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。
+发布输出为单个 `app/TrayPilot.exe`，包含内置语言包与原生模块。完整版包含 .NET（原生运行时组件在启动时自动释放）；精简版需要 .NET 10 Desktop Runtime x64。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。
 
 ### 识别诊断
 

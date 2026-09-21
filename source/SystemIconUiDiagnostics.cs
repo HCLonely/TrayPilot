@@ -149,7 +149,7 @@ internal static partial class Diagnostics
             typeof(MainForm).GetMethod("SetupSystemIconWatch", flags)!.Invoke(restarted, null);
             using var timer = new System.Windows.Forms.Timer { Interval = 100 };
             int attempts = 0; bool clearing = false; Exception? error = null;
-            timer.Tick += (_, _) =>
+            timer.Tick += async (_, _) =>
             {
                 try
                 {
@@ -171,6 +171,20 @@ internal static partial class Diagnostics
                     }
                     if (!clearing)
                     {
+                        timer.Stop();
+                        int hiddenBefore = session.Hidden;
+                        var actions = (FlowLayoutPanel)typeof(MainForm).GetField("actions", flags)!.GetValue(restarted)!;
+                        actions.Controls.OfType<Button>().Single(x => x.Text == L.T("restoreAll")).PerformClick();
+                        for (int i = 0; i < 50 && (bool)typeof(MainForm).GetField("busy", flags)!.GetValue(restarted)!; i++)
+                            await Task.Delay(100);
+                        await Task.Delay(500); // Include native ticks and any deferred session release.
+                        if ((bool)typeof(MainForm).GetField("busy", flags)!.GetValue(restarted)! ||
+                            !ReferenceEquals(restarted.systemIconSessionForDiagnostics, session) ||
+                            session.Requested != 6 || session.Hidden != hiddenBefore ||
+                            new Controller(folder).Saved.HiddenSystemIcons != 6)
+                            throw new IOException("Main-window Restore all changed system-icon visibility, preferences or session.");
+                        log.Add("PASS Main-window Restore all preserves system-icon visibility, saved choices and active session");
+                        timer.Start();
                         typeof(MainForm).GetMethod("RestoreLiveSystemIcons", flags)!.Invoke(restarted, null);
                         clearing = true; return;
                     }
@@ -187,7 +201,7 @@ internal static partial class Diagnostics
             Thread.Sleep(500); // Allow the helper's restoration timer to finish before the next session.
         }
         log.Add("PASS Startup applies saved icons without opening the system-icons dialog; exit preserves preferences; next launch reapplies them");
-        log.Add("PASS Restore all clears saved system-icon choices");
+        log.Add("PASS Explicit system-icon restoration clears saved system-icon choices");
     }
     static void CheckSystemIconExitPreference(string folder, List<string> log)
     {

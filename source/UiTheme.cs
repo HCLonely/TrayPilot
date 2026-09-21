@@ -141,6 +141,7 @@ internal static class UiTheme
 internal sealed class SurfacePanel : Panel
 {
     internal SurfacePanel() { DoubleBuffered = true; BackColor = Color.Transparent; }
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal bool FocusBorder { get; set; }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -159,6 +160,7 @@ internal sealed class SurfacePanel : Panel
 // Native button semantics and keyboard activation, with immediate, static states.
 internal sealed class ThemeButton : Button
 {
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal bool Primary { get; init; }
     bool hovered, pressed;
     internal ThemeButton() { DoubleBuffered = true; }

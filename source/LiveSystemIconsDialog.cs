@@ -109,10 +109,12 @@ internal sealed partial class MainForm
         var state = new Label { Text = L.T("systemNativeConnecting"), AutoSize = true, MaximumSize = new(720, 0), Margin = new(0, 10, 0, 10) };
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
         var hide = UiTheme.Button(L.T("hideSelected")); var restore = UiTheme.Button(L.T("restoreSelected"));
+        var restoreAll = UiTheme.Button(L.T("restoreAll"));
         var refresh = UiTheme.Button(L.T("refresh"));
         var close = UiTheme.Button(L.T("close"));
         hide.Name = "HideSystemIcon"; restore.Name = "RestoreSystemIcon";
-        buttons.Controls.AddRange(new Control[] { hide, restore, refresh, close });
+        restoreAll.Name = "RestoreAllSystemIcons";
+        buttons.Controls.AddRange(new Control[] { hide, restore, restoreAll, refresh, close });
         layout.Controls.Add(header); layout.Controls.Add(rows); layout.Controls.Add(state); layout.Controls.Add(buttons); dialog.Controls.Add(layout);
         bool operating = false;
         int SelectedMask() => rows.SelectedItems.Count == 1 ? (int)rows.SelectedItems[0].Tag! : 0;
@@ -146,6 +148,7 @@ internal sealed partial class MainForm
             }
             int selected = rows.SelectedItems.Count == 1 ? (int)rows.SelectedItems[0].Tag! : 0;
             hide.Enabled = restore.Enabled = !operating && connected && selected != 0;
+            restoreAll.Enabled = !operating && connected;
             toggleItem.Enabled = hide.Enabled;
             toggleItem.Text = L.T(ShouldHide(selected) ? "hideSelected" : "restoreSelected");
             refresh.Enabled = !operating;
@@ -167,11 +170,12 @@ internal sealed partial class MainForm
             operating = true; UpdateRows();
             try
             {
-                int id = session.Set(hidden ? previous | bit : previous & ~bit);
+                int id = session.Set(hidden ? previous | bit : previous & ~bit, hidden ? 0 : bit);
                 for (int i = 0; i < 30 && session.Acknowledged != id && session.Error == 0; i++) await Task.Delay(100);
                 bool sharedPending = session.SharedMicrophoneLocation && (bit & 48) != 0 && (session.Requested & 48) != 48;
                 if (session.Acknowledged != id || session.Error != 0 ||
-                    (hidden && (session.Found & bit) != 0 && (session.Hidden & bit) == 0 && !sharedPending))
+                    (hidden && (session.Found & bit) != 0 && (session.Hidden & bit) == 0 && !sharedPending) ||
+                    (!hidden && (session.Found & session.Hidden & bit) != 0))
                     throw new IOException(L.F("systemNativeFailed", $"0x{session.Error:X8}"));
                 controller.SetHiddenSystemIcons(session.Requested);
                 systemIconsRequested = session.Requested;
@@ -185,6 +189,7 @@ internal sealed partial class MainForm
             finally { systemIconsChanging = false; operating = false; if (!dialog.IsDisposed) UpdateRows(); }
         }
         hide.Click += async (_, _) => await Change(SelectedMask(), true); restore.Click += async (_, _) => await Change(SelectedMask(), false);
+        restoreAll.Click += async (_, _) => await Change(SystemIconCatalog.All, false);
         toggleItem.Click += async (_, _) => { int bit = SelectedMask(); await Change(bit, ShouldHide(bit)); };
         rows.MouseDoubleClick += async (_, e) =>
         {

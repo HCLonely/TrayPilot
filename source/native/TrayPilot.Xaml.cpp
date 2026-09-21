@@ -31,8 +31,10 @@ struct Shared {
     ULONG64 symbols[4];
     IconAppearance icons[12];
     volatile LONG appearanceRequested;
+    volatile LONG restoreRequested;
 };
 static_assert(offsetof(Shared, appearanceRequested)==2016);
+static_assert(offsetof(Shared, restoreRequested)==2020);
 struct Session {
     HANDLE mapping{}, owner{};
     Shared* data{};
@@ -127,7 +129,7 @@ struct Context {
         for(int i=0;i<count;i++) if(LONG kind=ContentKind(Media::VisualTreeHelper::GetChild(node,i),depth+1)) return kind;
         return 0;
     }
-    void Walk(DependencyObject const& node, LONG mask, LONG& found, LONG& visible, int depth=0, int region=0) {
+    void Walk(DependencyObject const& node, LONG mask, LONG restoreMask, LONG& found, LONG& visible, int depth=0, int region=0) {
         if(depth>32) return;
         auto element=node.try_as<FrameworkElement>();
         if(!element) return;
@@ -151,11 +153,16 @@ struct Context {
             if(kind==(16|32)) sharedMicrophoneLocation=true;
             // A combined privacy indicator must remain unless both are requested.
             Set(element,(mask&kind)==kind);
+            // An explicit Show must also recover controls hidden before this DLL
+            // instance was loaded (for example, by an earlier application version).
+            // Passive scans and session cleanup still preserve the original state.
+            if((restoreMask&kind) && (mask&kind)!=kind && element.Visibility()==Visibility::Collapsed)
+                element.Visibility(Visibility::Visible);
             if(element.Visibility()!=Visibility::Collapsed) visible|=kind;
             return;
         }
         int count=Media::VisualTreeHelper::GetChildrenCount(node);
-        for(int i=0;i<count;i++) Walk(Media::VisualTreeHelper::GetChild(node,i),mask,found,visible,depth+1,region);
+        for(int i=0;i<count;i++) Walk(Media::VisualTreeHelper::GetChild(node,i),mask,restoreMask,found,visible,depth+1,region);
     }
     void Tick() noexcept {
         if(updating) return;
@@ -174,11 +181,11 @@ struct Context {
                     Restore(); frame=TaskbarRoot(window,data); root=make_weak(frame);
                 }
                 if(!frame) { data->found=0; data->hidden=0; throw hresult_error(E_NOTIMPL); }
-                LONG request=data->requestId, mask=data->requested, found=0, visible=0;
+                LONG request=data->requestId, mask=data->requested, restoreMask=data->restoreRequested, found=0, visible=0;
                 for(auto& original:originals) original.touched=false;
                 sharedMicrophoneLocation=false;
                 ZeroMemory(icons,sizeof(icons));
-                Walk(frame,mask,found,visible);
+                Walk(frame,mask,restoreMask,found,visible);
                 // If an input method switches between text and image content,
                 // restore emptied/reclassified containers so XAML can repopulate them.
                 for(size_t i=0;i<originals.size();) {

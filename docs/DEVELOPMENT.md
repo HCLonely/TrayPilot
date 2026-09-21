@@ -6,13 +6,13 @@
 
 ### Local build
 
-On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK, together with the .NET 8 SDK or a newer SDK supporting `net8.0-windows`, then run from the repository root:
+On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK, together with the .NET 10 SDK or a newer SDK supporting `net10.0-windows`, then run from the repository root:
 
 ```powershell
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-The publish output is a single `app/TrayPilot.exe`, including built-in languages and the native helper. The self-contained build includes .NET (native runtime components extract at launch); the lite build requires .NET 8 Desktop Runtime x64. Sources are under `source/`, using C#, Windows Forms and Win32 APIs.
+The publish output is a single `app/TrayPilot.exe`, including built-in languages and the native helper. The self-contained build includes .NET (native runtime components extract at launch); the lite build requires .NET 10 Desktop Runtime x64. Sources are under `source/`, using C#, Windows Forms and Win32 APIs.
 
 ### Detection diagnostics
 

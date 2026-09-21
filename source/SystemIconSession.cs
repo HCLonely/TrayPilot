@@ -78,11 +78,14 @@ internal sealed class SystemIconSession : IDisposable
         }
         catch { Dispose(); throw; }
     }
-    internal int Set(int mask)
+    internal int Set(int mask, int restoreMask = 0)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if ((mask & ~SystemIconCatalog.All) != 0) throw new ArgumentOutOfRangeException(nameof(mask));
+        if ((restoreMask & ~SystemIconCatalog.All) != 0 || (restoreMask & mask) != 0)
+            throw new ArgumentOutOfRangeException(nameof(restoreMask));
         view.Write(8, mask);
+        view.Write(2020, restoreMask);
         view.Write(40, ++request);
         return request;
     }

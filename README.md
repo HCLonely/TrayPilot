@@ -10,7 +10,7 @@ Keep your Windows tray tidy: hide unwanted icons while their applications keep r
 
 For **Windows 11 x64**, primarily tested on Windows 11 25H2.
 
-1. Visit the [download page](https://github.com/HCLonely/TrayPilot/releases) and choose **Full (recommended)**. Choose the smaller **Lite** package if you already have .NET 8 Desktop Runtime x64 installed.
+1. Visit the [download page](https://github.com/HCLonely/TrayPilot/releases) and choose **Full (recommended)**. Choose the smaller **Lite** package if you already have .NET 10 Desktop Runtime x64 installed.
 2. Extract the package to a folder you plan to keep, then run `TrayPilot.exe`. Full needs no separate runtime installation.
 3. Find an unwanted icon and **double-click to hide it; double-click again to restore it**.
 4. Closing the window keeps TrayPilot running in the tray by default. Choose **Exit** from its menu to quit.
@@ -38,7 +38,7 @@ The right-click menu also offers **Properties** and **End task**. Ending a task 
 Once you add a hide rule, TrayPilot automatically hides matching icons while it is running. Rules are saved for future launches.
 
 - **Show an icon temporarily**: restore it manually to keep it visible for this session. Choose **Hide matching icons** to apply the rules again.
-- **Restore all**: restore icons hidden by TrayPilot while keeping application hide rules.
+- **Restore all**: restore only application tray icons hidden by TrayPilot while keeping application hide rules. System-icon visibility and hiding choices are preserved.
 - **Remove a rule permanently**: delete its entry in **Hide rules**.
 - **Exit**: quit without restoring hidden icons by default. Enable **Restore icons on exit** in Settings to restore them when quitting. Rules and remaining recovery records are kept for the next launch.
 
@@ -75,7 +75,7 @@ Open **System icons** to manage the primary taskbar's volume, network, battery, 
 
 Keep **Updated compatibility method (recommended)** selected for normal use. The first connection, or a connection after a Windows update, may need internet access and a short wait. If it fails, try again later or try the other detection method.
 
-System-icon choices are separate from application hide rules. **Restore all** and **Show all icons** clear saved system-icon hiding choices; set them again if you want them hidden later.
+System-icon choices are separate from application hide rules. The main window's **Restore all** restores only application tray icons. **Restore all** in the **System icons** window restores only system controls and clears their saved hiding choices, without affecting application icons or rules. **Show all icons** still clears saved system-icon hiding choices; set them again if you want them hidden later.
 
 ## Common questions
 
