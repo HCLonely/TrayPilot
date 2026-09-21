@@ -320,7 +320,7 @@ internal sealed partial class MainForm
         var help = new Label { Text = L.T("rulesAndHotkeysHelp"), AutoSize = true, MaximumSize = new(660, 0), ForeColor = UiTheme.Muted };
         var error = new Label { Text = startupError ?? "", AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new(660, 0) };
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-        var save = UiTheme.Button(L.T("save")); var cancel = UiTheme.Button(L.T("cancel")); cancel.DialogResult = DialogResult.Cancel;
+        var save = UiTheme.Button(L.T("save"), primary: true); var cancel = UiTheme.Button(L.T("cancel")); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save); buttons.Controls.Add(cancel);
         panel.Controls.Add(help, 0, 9); panel.SetColumnSpan(help, 2);
         panel.Controls.Add(new Label { Text = L.F("currentVersion", UpdateChecker.CurrentVersionText), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 10);

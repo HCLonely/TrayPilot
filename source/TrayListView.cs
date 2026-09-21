@@ -42,8 +42,8 @@ internal sealed class TrayListView : ListView
         TextRenderer.DrawText(e.Graphics, e.Header!.Text, Font, Rectangle.Inflate(e.Bounds, -10, 0), UiTheme.Muted,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
-    Color Background(ListViewItem item) => item.Selected ? UiTheme.Selection : item == hovered ? UiTheme.Highlight : View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
-    Color Foreground(ListViewItem item) => item.Selected || item == hovered ? Color.White : item.Tag is TrayEntry entry && entry.State == 1 ? UiTheme.Muted : UiTheme.Ink;
+    Color Background(ListViewItem item) => item.Selected ? UiTheme.Selection : item == hovered ? UiTheme.Hover : View == View.Details && item.Index % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
+    Color Foreground(ListViewItem item) => item.Selected ? Color.White : item.Tag is TrayEntry entry && entry.State == 1 ? UiTheme.Muted : UiTheme.Ink;
     protected override void OnDrawItem(DrawListViewItemEventArgs e)
     {
         if (e.Item == null) return;
@@ -66,7 +66,11 @@ internal sealed class TrayListView : ListView
             var bounds = Cell(item);
             if (!bounds.IntersectsWith(ClientRectangle) || !graphics.IsVisible(Rectangle.Inflate(bounds, 1, 1))) continue;
             using var fill = new SolidBrush(Background(item)); using var border = new Pen(item.Selected ? UiTheme.SelectionBorder : item == hovered ? UiTheme.Highlight : UiTheme.Border, item.Selected ? 2 * DeviceDpi / 96f : 1);
-            graphics.FillRectangle(fill, bounds); graphics.DrawRectangle(border, bounds);
+            var smoothing = graphics.SmoothingMode;
+            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var path = UiTheme.RoundedRectangle(bounds, 8 * DeviceDpi / 96))
+            { graphics.FillPath(fill, path); graphics.DrawPath(border, path); }
+            graphics.SmoothingMode = smoothing;
             if (item.Selected)
                 TextRenderer.DrawText(graphics, "✓", Font, new Rectangle(bounds.Left + 3, bounds.Top + 3, 20, 20), Color.White,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);

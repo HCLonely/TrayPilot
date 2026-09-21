@@ -46,7 +46,9 @@ internal sealed partial class MainForm : Form
         var searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = new(0, 4, 0, 10) };
         searchRow.RowStyles.Add(new(SizeType.Percent, 100));
         searchRow.ColumnStyles.Add(new(SizeType.Percent, 100)); searchRow.ColumnStyles.Add(new(SizeType.AutoSize)); searchRow.ColumnStyles.Add(new(SizeType.AutoSize));
-        var searchBox = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(14, 10, 14, 8), Margin = new(0, 0, 12, 0) };
+        var searchBox = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(14, 10, 14, 8), Margin = new(0, 0, 12, 0), FocusBorder = true };
+        search.GotFocus += (_, _) => searchBox.Invalidate();
+        search.LostFocus += (_, _) => searchBox.Invalidate();
         search.BorderStyle = BorderStyle.None; search.Dock = DockStyle.Fill; search.BackColor = UiTheme.Surface; search.ForeColor = UiTheme.Ink;
         searchBox.Controls.Add(search);
         searchBox.Controls.Add(new Label { Text = "search", Dock = DockStyle.Left, Width = 62, ForeColor = UiTheme.Muted, BackColor = UiTheme.Surface });
@@ -90,7 +92,7 @@ internal sealed partial class MainForm : Form
         };
         var contentPanel = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(8), Margin = Padding.Empty };
         contentPanel.Controls.Add(list); layout.Controls.Add(contentPanel, 0, 4);
-        status.ForeColor = UiTheme.Accent; status.Margin = Padding.Empty;
+        status.ForeColor = UiTheme.Muted; status.Margin = new(2, 0, 0, 0);
         layout.Controls.Add(status, 0, 5);
         layout.Controls.Add(new Label { Text = "closeAndExitHelp", Dock = DockStyle.Fill, ForeColor = UiTheme.Muted, Font = new(Font.FontFamily, 8.5f), Margin = Padding.Empty }, 0, 6);
         Controls.Add(layout);
@@ -192,7 +194,7 @@ internal sealed partial class MainForm : Form
     }
     void AddButton(string text, Action handler)
     {
-        var button = UiTheme.Button(text);
+        var button = UiTheme.Button(text, primary: text == "hideSelected");
         button.Click += (_, _) => { if (!busy && !closing) handler(); }; actions.Controls.Add(button);
     }
     Task RefreshAsync() => RefreshSnapshotAsync(true);

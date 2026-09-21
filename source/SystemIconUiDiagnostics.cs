@@ -258,7 +258,7 @@ internal static partial class Diagnostics
             using var bitmap = new Bitmap(list.Width, list.Height); list.DrawToBitmap(bitmap, list.ClientRectangle);
             int selectedPixels = 0, hoverPixels = 0;
             for (int y = 0; y < bitmap.Height; y++) for (int x = 0; x < bitmap.Width; x++)
-            { int color = bitmap.GetPixel(x, y).ToArgb(); if (color == UiTheme.Selection.ToArgb()) selectedPixels++; if (color == UiTheme.Highlight.ToArgb()) hoverPixels++; }
+            { int color = bitmap.GetPixel(x, y).ToArgb(); if (color == UiTheme.Selection.ToArgb()) selectedPixels++; if (color == UiTheme.Hover.ToArgb()) hoverPixels++; }
             if (selectedPixels < 500 || hoverPixels < 500) throw new IOException($"Selection and hover are not distinct in {theme}/{grid}");
             bitmap.Save(Path.Combine(folder, $"selection-{theme}-{(grid ? "grid" : "list")}.png"));
             log.Add($"PASS {theme}/{(grid ? "grid" : "list")} selection remains prominent and distinct from hover");

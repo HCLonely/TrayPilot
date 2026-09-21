@@ -6,10 +6,10 @@ internal static class UiTheme
 {
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Form, Icon> FormIcons = new();
     internal static bool Dark { get; private set; }
-    internal static Color Canvas => Dark ? Color.FromArgb(20, 25, 34) : Color.FromArgb(243, 246, 251);
-    internal static Color Surface => Dark ? Color.FromArgb(30, 37, 49) : Color.White;
-    internal static Color Ink => Dark ? Color.FromArgb(230, 236, 246) : Color.FromArgb(31, 44, 67);
-    internal static Color Muted => Dark ? Color.FromArgb(156, 171, 193) : Color.FromArgb(106, 119, 139);
+    internal static Color Canvas => Dark ? Color.FromArgb(19, 23, 31) : Color.FromArgb(245, 247, 250);
+    internal static Color Surface => Dark ? Color.FromArgb(27, 33, 44) : Color.White;
+    internal static Color Ink => Dark ? Color.FromArgb(234, 239, 247) : Color.FromArgb(28, 39, 57);
+    internal static Color Muted => Dark ? Color.FromArgb(164, 177, 198) : Color.FromArgb(94, 109, 131);
     internal static Color Accent => Dark ? Color.FromArgb(124, 165, 255) : Color.FromArgb(53, 92, 198);
     internal static Color Highlight => Color.FromArgb(42, 96, 204);
     internal static Color Selection => Dark ? Color.FromArgb(38, 77, 148) : Color.FromArgb(30, 72, 160);
@@ -17,6 +17,9 @@ internal static class UiTheme
     internal static Color Border => Dark ? Color.FromArgb(62, 74, 94) : Color.FromArgb(221, 228, 239);
     internal static Color Header => Dark ? Color.FromArgb(39, 48, 63) : Color.FromArgb(239, 243, 249);
     internal static Color Stripe => Dark ? Color.FromArgb(34, 42, 55) : Color.FromArgb(249, 251, 254);
+    internal static Color Hover => Dark ? Color.FromArgb(39, 51, 71) : Color.FromArgb(237, 243, 253);
+    internal static Color Primary => Color.FromArgb(45, 85, 185);
+    internal static Color PrimaryHover => Color.FromArgb(36, 71, 161);
 
     internal static bool Set(string mode)
     {
@@ -32,7 +35,8 @@ internal static class UiTheme
     internal static void Apply(Control control, bool surface = false)
     {
         surface |= control is SurfacePanel || control.Tag as string == "surface";
-        bool muted = control.ForeColor == Color.FromArgb(106, 119, 139) || control.ForeColor == Color.FromArgb(156, 171, 193);
+        bool muted = control.ForeColor == Color.FromArgb(94, 109, 131) || control.ForeColor == Color.FromArgb(164, 177, 198)
+            || control.ForeColor == Color.FromArgb(106, 119, 139) || control.ForeColor == Color.FromArgb(156, 171, 193);
         control.ForeColor = control.ForeColor == Color.Firebrick ? Color.Firebrick : muted ? Muted : Ink;
         control.BackColor = surface ? Surface : Canvas;
         if (control is TextBox text) text.BackColor = text.ReadOnly ? Header : Surface;
@@ -48,8 +52,11 @@ internal static class UiTheme
         }
         if (control is Button button)
         {
-            button.BackColor = Surface; button.ForeColor = Ink;
-            button.FlatAppearance.BorderColor = Border; button.FlatAppearance.MouseOverBackColor = Header;
+            bool primary = button is ThemeButton { Primary: true };
+            button.BackColor = primary ? Primary : Surface; button.ForeColor = primary ? Color.White : Ink;
+            button.FlatAppearance.BorderColor = primary ? Primary : Border;
+            button.FlatAppearance.MouseOverBackColor = primary ? PrimaryHover : Hover;
+            button.FlatAppearance.MouseDownBackColor = primary ? Selection : Header;
         }
         if (control is RadioButton radio)
         {
@@ -77,13 +84,25 @@ internal static class UiTheme
 
     internal static Button Button(string text, bool primary = false)
     {
-        var button = new Button { Text = text, AutoSize = true, MinimumSize = new(82, 36),
+        var button = new ThemeButton { Primary = primary, Text = text, AutoSize = true, MinimumSize = new(82, 36),
             Padding = new(12, 4, 12, 4), FlatStyle = FlatStyle.Flat, Margin = new(0, 0, 8, 0),
-            BackColor = primary ? Accent : Surface, ForeColor = primary ? Color.White : Ink,
+            BackColor = primary ? Primary : Surface, ForeColor = primary ? Color.White : Ink,
             UseVisualStyleBackColor = false, Cursor = Cursors.Hand };
-        button.FlatAppearance.BorderColor = primary ? Accent : Border;
-        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(42, 77, 174) : Header;
+        button.FlatAppearance.BorderColor = primary ? Primary : Border;
+        button.FlatAppearance.MouseOverBackColor = primary ? PrimaryHover : Hover;
         return button;
+    }
+
+    internal static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
+    {
+        var path = new GraphicsPath();
+        int diameter = Math.Max(1, Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height)));
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     internal static Panel Heading(string title, string subtitle, Font font)
@@ -122,21 +141,54 @@ internal static class UiTheme
 internal sealed class SurfacePanel : Panel
 {
     internal SurfacePanel() { DoubleBuffered = true; BackColor = Color.Transparent; }
+    internal bool FocusBorder { get; set; }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         if (Width < 16 || Height < 16) return;
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var path = new GraphicsPath();
-        const int diameter = 16;
+        e.Graphics.Clear(Parent?.BackColor ?? UiTheme.Canvas);
         var bounds = new Rectangle(0, 0, Width - 1, Height - 1);
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        using var fill = new SolidBrush(UiTheme.Surface); using var border = new Pen(UiTheme.Border);
+        using var path = UiTheme.RoundedRectangle(bounds, 10 * DeviceDpi / 96);
+        using var fill = new SolidBrush(UiTheme.Surface);
+        using var border = new Pen(FocusBorder && ContainsFocus ? UiTheme.Accent : UiTheme.Border);
         e.Graphics.FillPath(fill, path); e.Graphics.DrawPath(border, path);
+    }
+}
+
+// Native button semantics and keyboard activation, with immediate, static states.
+internal sealed class ThemeButton : Button
+{
+    internal bool Primary { get; init; }
+    bool hovered, pressed;
+    internal ThemeButton() { DoubleBuffered = true; }
+    protected override void OnMouseEnter(EventArgs e) { hovered = true; base.OnMouseEnter(e); Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { hovered = false; base.OnMouseLeave(e); Invalidate(); }
+    protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) pressed = true; base.OnMouseDown(e); Invalidate(); }
+    protected override void OnMouseUp(MouseEventArgs e) { pressed = false; base.OnMouseUp(e); Invalidate(); }
+    protected override void OnMouseCaptureChanged(EventArgs e) { pressed = false; base.OnMouseCaptureChanged(e); Invalidate(); }
+    protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Space) pressed = true; base.OnKeyDown(e); Invalidate(); }
+    protected override void OnKeyUp(KeyEventArgs e) { pressed = false; base.OnKeyUp(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { pressed = false; base.OnLostFocus(e); Invalidate(); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        if (Width < 3 || Height < 3) return;
+        e.Graphics.Clear(Parent?.BackColor ?? UiTheme.Canvas);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        int inset = Math.Max(1, DeviceDpi / 96);
+        var bounds = new Rectangle(inset, inset, Width - inset * 2 - 1, Height - inset * 2 - 1);
+        using var path = UiTheme.RoundedRectangle(bounds, 7 * DeviceDpi / 96);
+        var background = !Enabled ? UiTheme.Header : Primary
+            ? pressed && (hovered || Focused) ? UiTheme.Selection : hovered ? UiTheme.PrimaryHover : UiTheme.Primary
+            : pressed && (hovered || Focused) ? UiTheme.Header : hovered ? UiTheme.Hover : UiTheme.Surface;
+        using var fill = new SolidBrush(background);
+        using var border = new Pen(Focused && ShowFocusCues ? UiTheme.Accent : Primary && Enabled ? background : UiTheme.Border,
+            Focused && ShowFocusCues ? 2 * DeviceDpi / 96f : 1);
+        e.Graphics.FillPath(fill, path); e.Graphics.DrawPath(border, path);
+        var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
+        if (!ShowKeyboardCues) flags |= TextFormatFlags.HidePrefix;
+        TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(bounds, -Padding.Horizontal / 2, 0),
+            !Enabled ? UiTheme.Muted : Primary ? Color.White : UiTheme.Ink, flags);
     }
 }
 

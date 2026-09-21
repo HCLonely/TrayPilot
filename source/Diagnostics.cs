@@ -583,12 +583,13 @@ internal static partial class Diagnostics
             int blue = 0;
             for (int y = Math.Max(0, bounds.Top); y < Math.Min(bitmap.Height, bounds.Bottom); y++)
                 for (int x = Math.Max(0, bounds.Left); x < Math.Min(bitmap.Width, bounds.Right); x++)
-                    if (bitmap.GetPixel(x, y).ToArgb() == UiTheme.Highlight.ToArgb()) blue++;
+                    if (bitmap.GetPixel(x, y).ToArgb() == UiTheme.Hover.ToArgb()) blue++;
             check(blue > 100, "Hovered items render a blue background in both layouts.");
             if (!grid)
             {
                 var region = new Rectangle(list.Columns[0].Width + 3, bounds.Top, Math.Min(300, list.Width - list.Columns[0].Width - 3), bounds.Height);
-                int Before() { int count = 0; for (int y = region.Top; y < Math.Min(bitmap.Height, region.Bottom); y++) for (int x = region.Left; x < region.Right; x++) if (bitmap.GetPixel(x, y).ToArgb() == Color.White.ToArgb()) count++; return count; }
+                var textColor = hovered.Tag is TrayEntry { State: 1 } ? UiTheme.Muted : UiTheme.Ink;
+                int Before() { int count = 0; for (int y = region.Top; y < Math.Min(bitmap.Height, region.Bottom); y++) for (int x = region.Left; x < region.Right; x++) if (bitmap.GetPixel(x, y).ToArgb() == textColor.ToArgb()) count++; return count; }
                 int textPixels = Before();
                 using (var graphics = Graphics.FromImage(bitmap))
                     typeof(TrayListView).GetMethod("OnDrawItem", flags)!.Invoke(list, new object[] { new DrawListViewItemEventArgs(graphics, hovered, bounds, hovered.Index, (ListViewItemStates)0) });
@@ -609,7 +610,7 @@ internal static partial class Diagnostics
             {
                 list.DrawToBitmap(moved, list.ClientRectangle);
                 var oldBounds = hovered.Bounds;
-                check(((TrayListView)list).HoveredItem == next && moved.GetPixel(Math.Clamp(oldBounds.Left + 6, 0, moved.Width - 1), Math.Clamp(oldBounds.Top + 4, 0, moved.Height - 1)).ToArgb() != UiTheme.Highlight.ToArgb(),
+                check(((TrayListView)list).HoveredItem == next && moved.GetPixel(Math.Clamp(oldBounds.Left + 6, 0, moved.Width - 1), Math.Clamp(oldBounds.Top + 4, 0, moved.Height - 1)).ToArgb() != UiTheme.Hover.ToArgb(),
                     "Moving to another item removes the previous blue hover even if it remains selected.");
             }
             hovered.Selected = selectedBefore;
