@@ -91,12 +91,21 @@ internal sealed partial class MainForm
         foreach (var caption in captions) caption.Key.Text = L.T(caption.Value);
         search.PlaceholderText = L.T("searchPlaceholder");
         for (int i = 0; i < columnCaptions.Count; i++) list.Columns[i].Text = L.T(columnCaptions[i]);
-        while (menuBar.Items.Count > 0) { var item = menuBar.Items[0]; menuBar.Items.RemoveAt(0); item.Dispose(); }
-        menuBar.Items.Add(L.T("hideRules"), null, (_, _) => EditRules());
-        menuBar.Items.Add(L.T("systemIcons"), null, (_, _) => ShowSystemIcons());
-        menuBar.Items.Add(L.T("settings"), null, (_, _) => ShowSettings());
-        menuBar.Items.Add(L.T("about"), null, (_, _) => ShowAbout());
-        menuBar.Items.Add(L.T("exit"), null, (_, _) => RequestExit());
+        // Keep the menu populated so its auto-sized height never collapses during translation.
+        menuBar.SuspendLayout();
+        try
+        {
+            if (menuBar.Items.Count == 0)
+            {
+                menuBar.Items.Add("hideRules", null, (_, _) => EditRules()).Name = "hideRules";
+                menuBar.Items.Add("systemIcons", null, (_, _) => ShowSystemIcons()).Name = "systemIcons";
+                menuBar.Items.Add("settings", null, (_, _) => ShowSettings()).Name = "settings";
+                menuBar.Items.Add("about", null, (_, _) => ShowAbout()).Name = "about";
+                menuBar.Items.Add("exit", null, (_, _) => RequestExit()).Name = "exit";
+            }
+            foreach (ToolStripItem item in menuBar.Items) item.Text = L.T(item.Name!);
+        }
+        finally { menuBar.ResumeLayout(true); }
         RenderList(); UpdateStatus(); UiTheme.Apply(menuBar);
     }
 
@@ -410,7 +419,11 @@ internal sealed partial class MainForm
             }
             if (trayIcon != null) trayIcon.Visible = controller.Saved.ShowTrayIcon;
             if (autoStart.Enabled) CacheStartup(autoStart.Checked);
-            L.Set(controller.Saved.Language); ApplyLanguage(); ApplyTheme(); dialog.DialogResult = DialogResult.OK;
+            // Nonvisual preferences must not rebuild or repaint the main window.
+            if (controller.Saved.Language != L.Current) { L.Set(controller.Saved.Language); ApplyLanguage(); }
+            if (controller.Saved.Theme != old.Theme) ApplyTheme();
+            UpdateStatus();
+            dialog.DialogResult = DialogResult.OK;
         };
         UiTheme.Apply(dialog); dialog.Shown += (_, _) => UiTheme.Apply(dialog);
         timer.Stop();

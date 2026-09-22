@@ -65,6 +65,7 @@ internal static partial class Diagnostics
             if (args[0] == "--menu-performance-test" && args.Length == 2) return TestMenuPerformance(args[1]);
             if (args[0] == "--refresh-performance-test" && args.Length == 2) return TestRefreshPerformance(args[1]);
             if (args[0] == "--refresh-regression-test" && args.Length == 2) return TestRefreshRegression(args[1]);
+            if (args[0] == "--settings-refresh-test" && args.Length == 2) return TestSettingsRefresh(args[1]);
             if (args[0] == "--verify-special-icons" && args.Length == 2) return TestSpecialIcons(args[1]);
             if (args[0] == "--verify-task-manager" && args.Length == 2) return TestTaskManager(args[1]);
             if (args[0] == "--icon-selection-test" && args.Length == 2) return TestIconSelection(args[1]);
