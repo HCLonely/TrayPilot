@@ -41,6 +41,7 @@ internal sealed class Controller
     readonly HashSet<string> manuallyShown = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, TrayEntry> individuallyShown = new();
     internal SavedState Saved { get; }
+    internal string SettingsFolder => Path.GetDirectoryName(file)!;
     internal string? LoadWarning { get; private set; }
     internal Controller(string folder)
     {
@@ -116,6 +117,17 @@ internal sealed class Controller
         else if (HasRule(path) || Saved.HiddenIcons.Any(x => SamePath(x.Path, path))) manuallyShown.Add(NormalizePath(path));
     }
     internal void ResetManualVisibility() { manuallyShown.Clear(); individuallyShown.Clear(); }
+    internal (string[] Paths, TrayEntry[] Icons) CaptureManualVisibility() => (manuallyShown.ToArray(), individuallyShown.Values.ToArray());
+    internal void RestoreManualVisibility(string[] paths, TrayEntry[] icons)
+    {
+        manuallyShown.Clear(); individuallyShown.Clear();
+        foreach (var path in paths) manuallyShown.Add(path);
+        foreach (var entry in icons) individuallyShown[entry.Key] = entry;
+    }
+    internal void ActivateIconRule(TrayEntry entry)
+    {
+        individuallyShown.Remove(entry.Key); manuallyShown.Remove(NormalizePath(entry.Path));
+    }
     internal void AddIconRule(TrayEntry entry)
     {
         if (HasIconRule(entry)) return;

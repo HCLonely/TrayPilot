@@ -9,7 +9,7 @@ internal sealed partial class MainForm : Form
     readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
     readonly System.Windows.Forms.Timer timer = new() { Interval = 2500 };
     readonly FlowLayoutPanel actions = new() { Dock = DockStyle.Fill, WrapContents = false, AutoSize = true };
-    readonly CheckBox autoRefresh = new() { Text = "autoRefreshOption", Checked = true, AutoSize = true, Margin = new(20, 5, 0, 0) };
+    readonly CheckBox autoRefresh = new ThemeCheckBox() { Text = "autoRefreshOption", Checked = true, AutoSize = true, Margin = new(20, 5, 0, 0) };
     readonly RadioButton layoutMode = new() { Text = "gridLayout", Appearance = Appearance.Button, AutoSize = true };
     readonly ContextMenuStrip itemMenu = new();
     List<TrayEntry> entries = new();
@@ -33,75 +33,13 @@ internal sealed partial class MainForm : Form
         Text = "mainWindowTitle"; Width = 1180; Height = 760; MinimumSize = new(1020, 620);
         StartPosition = FormStartPosition.CenterScreen; Font = new("Microsoft YaHei UI", 9.5f);
         BackColor = UiTheme.Canvas; ForeColor = UiTheme.Ink;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(28, 20, 28, 12), ColumnCount = 1, RowCount = 7 };
-        layout.RowStyles.Add(new(SizeType.Absolute, 50)); layout.RowStyles.Add(new(SizeType.Absolute, 34));
-        layout.RowStyles.Add(new(SizeType.Absolute, 58)); layout.RowStyles.Add(new(SizeType.Absolute, 52));
-        layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 34));
-        layout.RowStyles.Add(new(SizeType.Absolute, 26));
-        var heading = new Label { Text = "mainWindowSubtitle", Font = new(Font.FontFamily, 22, FontStyle.Bold),
-            Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = Padding.Empty };
-        layout.Controls.Add(heading, 0, 0);
-        layout.Controls.Add(new Label { Text = "iconListHelp",
-            Dock = DockStyle.Fill, ForeColor = UiTheme.Muted, Margin = Padding.Empty }, 0, 1);
-        var searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = new(0, 4, 0, 10) };
-        searchRow.RowStyles.Add(new(SizeType.Percent, 100));
-        searchRow.ColumnStyles.Add(new(SizeType.Percent, 100)); searchRow.ColumnStyles.Add(new(SizeType.AutoSize)); searchRow.ColumnStyles.Add(new(SizeType.AutoSize));
-        var searchBox = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(14, 10, 14, 8), Margin = new(0, 0, 12, 0), FocusBorder = true };
-        search.GotFocus += (_, _) => searchBox.Invalidate();
-        search.LostFocus += (_, _) => searchBox.Invalidate();
-        search.BorderStyle = BorderStyle.None; search.Dock = DockStyle.Fill; search.BackColor = UiTheme.Surface; search.ForeColor = UiTheme.Ink;
-        searchBox.Controls.Add(search);
-        searchBox.Controls.Add(new Label { Text = "search", Dock = DockStyle.Left, Width = 62, ForeColor = UiTheme.Muted, BackColor = UiTheme.Surface });
-        searchRow.Controls.Add(searchBox, 0, 0);
-        var refresh = UiTheme.Button("refresh"); refresh.Click += async (_, _) => { if (!busy && !closing) await RefreshAsync(); };
-        searchRow.Controls.Add(refresh, 1, 0);
-        autoRefresh.Margin = new(18, 10, 0, 0); autoRefresh.ForeColor = UiTheme.Muted;
-        searchRow.Controls.Add(autoRefresh, 2, 0); layout.Controls.Add(searchRow, 0, 2);
-        AddButton("hideSelected", () => ChangeSelected(true)); AddButton("restoreSelected", () => ChangeSelected(false));
-        var hideRules = UiTheme.Button("hideMatchingIcons"); hideRules.Click += async (_, _) => await ApplyVisibilityPresetAsync(true); actions.Controls.Add(hideRules);
-        AddButton("restoreAll", () => RunAsyncAction(() => controller.RestoreManagedAsync(temporarilyShow: true)));
-        var commandRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
-        commandRow.ColumnStyles.Add(new(SizeType.Percent, 100)); commandRow.ColumnStyles.Add(new(SizeType.AutoSize));
-        actions.Margin = Padding.Empty; commandRow.Controls.Add(actions, 0, 0);
-        var options = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-        options.Controls.Add(new Label { Text = "layout", AutoSize = true, ForeColor = UiTheme.Muted, Margin = new(0, 10, 10, 0) });
-        var listMode = new RadioButton { Text = "listLayout", Appearance = Appearance.Button, AutoSize = true, Checked = true };
-        UiTheme.Toggle(listMode); UiTheme.Toggle(layoutMode);
-        options.Controls.Add(listMode); options.Controls.Add(layoutMode);
-        commandRow.Controls.Add(options, 1, 0); layout.Controls.Add(commandRow, 0, 3);
-        layoutMode.CheckedChanged += (_, _) => ChangeLayout();
-        autoRefresh.CheckedChanged += (_, _) => { UpdateTimer(); UpdateStatus(); };
-        list.BorderStyle = BorderStyle.None; list.BackColor = UiTheme.Surface; list.ForeColor = UiTheme.Ink;
-        list.Columns.Add("softwareName", 215); list.Columns.Add("iconState", 125); list.Columns.Add("matchingRules", 140);
-        list.Columns.Add("process", 155); list.Columns.Add("path", 430);
-        list.SizeChanged += (_, _) =>
-        {
-            if (list.Columns.Count == 5)
-                list.Columns[4].Width = Math.Max(260 * DeviceDpi / 96, list.ClientSize.Width - list.Columns.Cast<ColumnHeader>().Take(4).Sum(x => x.Width) - SystemInformation.VerticalScrollBarWidth - 4);
-        };
-        list.ShowItemToolTips = true;
-        list.MouseClick += (_, e) =>
-        {
-            if (e.Button != MouseButtons.Right || closing) return;
-            if (((TrayListView)list).ItemAt(e.Location)?.Tag is TrayEntry entry) ShowItemMenu(entry, e.Location);
-        };
-        list.MouseDoubleClick += (_, e) =>
-        {
-            if (busy || closing || ((TrayListView)list).ItemAt(e.Location)?.Tag is not TrayEntry entry) return;
-            if (e.Button == MouseButtons.Left && ModifierKeys == Keys.None) ToggleEntry(entry);
-        };
-        var contentPanel = new SurfacePanel { Dock = DockStyle.Fill, Padding = new(8), Margin = Padding.Empty };
-        contentPanel.Controls.Add(list); layout.Controls.Add(contentPanel, 0, 4);
-        status.ForeColor = UiTheme.Muted; status.Margin = new(2, 0, 0, 0);
-        layout.Controls.Add(status, 0, 5);
-        layout.Controls.Add(new Label { Text = "closeAndExitHelp", Dock = DockStyle.Fill, ForeColor = UiTheme.Muted, Font = new(Font.FontFamily, 8.5f), Margin = Padding.Empty }, 0, 6);
-        Controls.Add(layout);
+        BuildDashboard();
         SetupShell(initialize); ApplyTheme();
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnSystemThemeChanged;
         search.TextChanged += (_, _) => RenderList();
         timer.Tick += async (_, _) => await RefreshSnapshotAsync(false);
-        VisibleChanged += (_, _) => { if (initialize) { UpdateTimer(); if (ListVisible) { RenderList(); _ = RefreshAsync(); } } };
-        Resize += (_, _) => { if (initialize) { UpdateTimer(); if (ListVisible) RenderList(); } };
+        VisibleChanged += (_, _) => { if (initialize) { UpdateSystemPageActivation(); UpdateTimer(); if (ListVisible) { RenderList(); _ = RefreshAsync(); } } };
+        Resize += (_, _) => { if (initialize) { UpdateSystemPageActivation(); UpdateTimer(); if (ListVisible) RenderList(); } };
         Shown += async (_, _) =>
         {
             if (startInTray && trayIcon?.Visible == true) Hide();
@@ -131,6 +69,7 @@ internal sealed partial class MainForm : Form
             if (e.CloseReason == CloseReason.WindowsShutDown) return;
             if (!exitRequested && e.CloseReason == CloseReason.UserClosing && controller.Saved.CloseToTray && trayIcon != null)
             { e.Cancel = true; Hide(); return; }
+            if (e.CloseReason == CloseReason.UserClosing && !TryLeaveSettings()) { e.Cancel = true; exitRequested = false; return; }
             if (!controller.Saved.RestoreIconsOnExit)
             {
                 closing = true; controller.StopOperations(); timer.Stop(); systemIconWatch.Stop();
@@ -144,8 +83,9 @@ internal sealed partial class MainForm : Form
     }
     void UpdateTimer()
     {
-        timer.Interval = (ListVisible && autoRefresh.Checked) || RulesActive || controller.Saved.Recovery.Count != 0 ? 2500 : 15000;
-        timer.Enabled = !closing && !IsDisposed && (autoRefresh.Checked || RulesActive || controller.Saved.Recovery.Count != 0);
+        bool rulesVisible = ListVisible && dashboardRulesPage?.Visible == true;
+        timer.Interval = (ListVisible && (autoRefresh.Checked || rulesVisible)) || RulesActive || controller.Saved.Recovery.Count != 0 ? 2500 : 15000;
+        timer.Enabled = !closing && !IsDisposed && (autoRefresh.Checked || rulesVisible || RulesActive || controller.Saved.Recovery.Count != 0);
     }
     void EnsureUiContext()
     {
@@ -205,7 +145,7 @@ internal sealed partial class MainForm : Form
         busy = true;
         try
         {
-            bool full = forceFull || (ListVisible && autoRefresh.Checked);
+            bool full = forceFull || (ListVisible && (autoRefresh.Checked || dashboardRulesPage?.Visible == true));
             var scanned = await Task.Run(() => scanSession.Scan(full));
             if (closing || IsDisposed) return;
             entries = scanned.Where(x => x.Pid != Environment.ProcessId).ToList();
@@ -220,6 +160,7 @@ internal sealed partial class MainForm : Form
                     entries = entries.Select(x => affected.Contains(x.Key) ? x with { State = Native.State(x) } : x)
                         .Where(x => x.State is 0 or 1).ToList();
                     if (forceFull || autoRefresh.Checked) RenderList();
+                    else if (ListVisible && dashboardRulesPage?.Visible == true) dashboardRulesPage.UpdateEntries(entries.ToList());
                 }
             }
             UpdateStatus();
@@ -237,14 +178,13 @@ internal sealed partial class MainForm : Form
     void RenderList()
     {
         if (initialized && !ListVisible) return;
+        dashboardRulesPage?.UpdateEntries(entries.ToList());
         var matches = controller.RuleMatcher();
         var rows = entries.Select(x => new RenderedRow(x, matches(x), controller.IsTemporarilyShown(x))).ToList();
         if (renderedLanguage == L.Current && renderedSearch == search.Text && rows.Count == renderedRows.Count &&
-            rows.Zip(renderedRows).All(x => x.First.SameContent(x.Second))) return;
-        var pathCounts = entries.GroupBy(x => Controller.NormalizePath(x.Path), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(x => x.Key, x => x.Count(), StringComparer.OrdinalIgnoreCase);
+            rows.Zip(renderedRows).All(x => x.First.SameContent(x.Second))) { UpdateDashboard(); return; }
         string filter = search.Text.Trim();
-        if (renderedLanguage == L.Current && renderedSearch == search.Text && rows.Count == renderedRows.Count &&
+        if (dashboardFilter == 0 && renderedLanguage == L.Current && renderedSearch == search.Text && rows.Count == renderedRows.Count &&
             rows.Zip(renderedRows).All(x => x.First.Entry.Key == x.Second.Entry.Key && x.First.Entry.Name == x.Second.Entry.Name &&
                 x.First.Entry.Path == x.Second.Entry.Path && x.First.Entry.Tooltip == x.Second.Entry.Tooltip &&
                 x.First.Entry.Pid == x.Second.Entry.Pid) &&
@@ -258,23 +198,27 @@ internal sealed partial class MainForm : Form
                 {
                     if (!changed.TryGetValue(((TrayEntry)item.Tag!).Key, out var row)) continue;
                     var entry = row.Entry;
-                    using var icon = imageCache.Create(entry, small.ImageSize.Width);
-                    using var largeIcon = imageCache.Create(entry, large.ImageSize.Width);
+                    using var icon = DashboardListImage(entry);
+                    using var largeIcon = imageCache.Create(entry with { State = 0 }, large.ImageSize.Width);
                     small.Images[item.ImageIndex] = icon; large.Images[item.ImageIndex] = largeIcon;
                     item.Tag = entry; item.ToolTipText = Details(entry);
                     item.SubItems[1].Text = L.T(entry.State == 1 ? "fullyHidden" : "normal");
-                    item.SubItems[2].Text = row.Rule ? L.T("ruleMatchIndicator") : "—";
+                    item.SubItems[2].Text = DashboardRuleName(entry);
+                    item.SubItems[4].Text = L.T(entry.State == 1 ? "dashboardShowAction" : "dashboardHideAction");
                     item.ForeColor = entry.State == 1 ? Color.FromArgb(140, 145, 155) : UiTheme.Ink;
                     item.MatchesRule = row.Rule;
+                    item.RuleRank = DashboardRuleRank(entry);
                 }
                 renderedRows = rows;
+                ApplyDashboardSort();
             }
-            finally { list.EndUpdate(); list.Invalidate(); }
+            finally { list.EndUpdate(); list.Invalidate(); UpdateDashboard(); }
             return;
         }
         var selected = list.SelectedItems.Cast<ListViewItem>().Select(x => ((TrayEntry)x.Tag!).Key).ToHashSet();
+        var focusedKey = (list.FocusedItem?.Tag as TrayEntry)?.Key ?? dashboardEntry?.Key;
         var topKey = list.View == View.Details ? (list.TopItem?.Tag as TrayEntry)?.Key : null;
-        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(28, 28) };
+        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(40, 56) };
         var largeImages = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(40, 40) };
         _ = images.Handle; _ = largeImages.Handle;
         var oldImages = list.SmallImageList;
@@ -287,27 +231,29 @@ internal sealed partial class MainForm : Form
         foreach (var row in rows)
         {
             var entry = row.Entry;
-            if (!(entry.Name + entry.Path + entry.Tooltip).Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
-            using var icon = imageCache.Create(entry, images.ImageSize.Width);
+            if (!DashboardMatches(entry) || !(entry.Name + entry.Path + entry.Tooltip).Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+            using var icon = DashboardListImage(entry);
             images.Images.Add(icon);
-            using var largeIcon = imageCache.Create(entry, largeImages.ImageSize.Width);
+            using var largeIcon = imageCache.Create(entry with { State = 0 }, largeImages.ImageSize.Width);
             largeImages.Images.Add(largeIcon);
-            var label = pathCounts[Controller.NormalizePath(entry.Path)] > 1
-                ? $"{entry.Name} · {(entry.Guid == Guid.Empty ? entry.Id.ToString() : entry.Guid.ToString())} · PID {entry.Pid}" : entry.Name;
-            var item = new TrayListItem(label, row.Rule) { Tag = entry, ImageIndex = images.Images.Count - 1,
+            var label = entry.Name;
+            var item = new TrayListItem(label, row.Rule) { Tag = entry, RuleRank = DashboardRuleRank(entry), ImageIndex = images.Images.Count - 1,
                 ToolTipText = Details(entry), Selected = selected.Contains(entry.Key) };
             item.SubItems.Add(L.T(entry.State == 1 ? "fullyHidden" : "normal"));
-            item.SubItems.Add(row.Rule ? L.T("ruleMatchIndicator") : "—");
-            item.SubItems.Add(System.IO.Path.GetFileName(entry.Path)); item.SubItems.Add(entry.Path);
+            item.SubItems.Add(DashboardRuleName(entry));
+            item.SubItems.Add(System.IO.Path.GetFileName(entry.Path)); item.SubItems.Add(L.T(entry.State == 1 ? "dashboardShowAction" : "dashboardHideAction"));
             item.BackColor = list.View == View.Details && list.Items.Count % 2 != 0 ? UiTheme.Stripe : UiTheme.Surface;
             if (entry.State == 1) item.ForeColor = Color.FromArgb(140, 145, 155);
             list.Items.Add(item);
         }
+        var focusedItem = list.Items.Cast<ListViewItem>().FirstOrDefault(x => ((TrayEntry)x.Tag!).Key == focusedKey);
+        if (focusedItem != null) focusedItem.Focused = true;
+        ApplyDashboardSort();
         var top = list.Items.Cast<ListViewItem>().FirstOrDefault(x => ((TrayEntry)x.Tag!).Key == topKey);
         if (top != null) list.TopItem = top;
         renderedRows = rows; renderedLanguage = L.Current; renderedSearch = search.Text;
         }
-        finally { list.EndUpdate(); oldImages?.Dispose(); oldLargeImages?.Dispose(); }
+        finally { list.EndUpdate(); oldImages?.Dispose(); oldLargeImages?.Dispose(); UpdateDashboard(); }
     }
     string Details(TrayEntry entry) => L.F("trayIconDetails",
         entry.Name, L.T(entry.State == 1 ? "hidden" : "shown"), L.T(controller.HasRule(entry) ? "yes" : "no"),
@@ -412,87 +358,38 @@ internal sealed partial class MainForm : Form
     }
     void EditRules()
     {
-        if (busy || closing) return;
-        using var dialog = CreateRulesDialog();
-        timer.Stop();
-        try { dialog.ShowDialog(this); } finally { UpdateTimer(); }
-        _ = RefreshAsync();
+        ShowRulesPage();
     }
 
-    internal Form CreateRulesDialog()
+    internal Form CreateRulesDialog() => new RulesDialog(controller, entries.ToList(), RefreshRuleDataAsync, RunRuleOperationAsync, Font, dashboardEntry);
+
+    async Task<List<TrayEntry>> RefreshRuleDataAsync()
     {
-        var dialog = new Form { Text = L.T("hideRules"), Size = new(880, 540), MinimumSize = new(700, 440),
-            StartPosition = FormStartPosition.CenterParent, Font = Font, BackColor = UiTheme.Canvas, ForeColor = UiTheme.Ink, Padding = new(24) };
-        var rules = new SmoothListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true,
-            HideSelection = false, ShowItemToolTips = true };
-        UiTheme.StyleList(rules);
-        rules.Columns.Add(L.T("softwareName"), 240); rules.Columns.Add(L.T("path"), 550);
-        var images = new ImageList { ImageSize = new(32, 32), ColorDepth = ColorDepth.Depth32Bit };
-        // Materialize the image list before temporary bitmaps are disposed.
-        _ = images.Handle;
-        rules.SmallImageList = images;
-        dialog.Disposed += (_, _) => images.Dispose();
-        foreach (var path in controller.Saved.HiddenPaths)
-        {
-            var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(x => Controller.SamePath(x.Path, path))
-                ?? new TrayEntry { Path = path, Name = System.IO.Path.GetFileNameWithoutExtension(path) };
-            using var icon = TrayImages.Create(entry with { State = 0 }, 32); images.Images.Add(icon);
-            var row = new ListViewItem(entry.Name + " · " + L.T("allApplicationIcons")) { Tag = path, ImageIndex = images.Images.Count - 1, ToolTipText = path,
-                BackColor = rules.Items.Count % 2 == 0 ? UiTheme.Surface : UiTheme.Stripe };
-            row.SubItems.Add(path); rules.Items.Add(row);
-        }
-        foreach (var rule in controller.Saved.HiddenIcons)
-        {
-            var entry = entries.Concat(controller.Saved.Recovery).FirstOrDefault(rule.Matches)
-                ?? new TrayEntry { Path = rule.Path, Name = System.IO.Path.GetFileNameWithoutExtension(rule.Path) };
-            using var icon = TrayImages.Create(entry with { State = 0 }, 32); images.Images.Add(icon);
-            var row = new ListViewItem($"{entry.Name} · {rule.Label}") { Tag = rule, ImageIndex = images.Images.Count - 1,
-                ToolTipText = rule.Path + "\n" + rule.Label, BackColor = rules.Items.Count % 2 == 0 ? UiTheme.Surface : UiTheme.Stripe };
-            row.SubItems.Add(rule.Path); rules.Items.Add(row);
-        }
-        rules.Resize += (_, _) => rules.Columns[1].Width = Math.Max(320, rules.ClientSize.Width - rules.Columns[0].Width - 24);
-        var empty = new Label { Text = L.T("noHideRulesMessage"), Dock = DockStyle.Bottom, Height = 40, ForeColor = UiTheme.Muted, Visible = rules.Items.Count == 0 };
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 54, Padding = new(0, 16, 0, 0), FlowDirection = FlowDirection.RightToLeft };
-        var close = UiTheme.Button(L.T("close")); close.DialogResult = DialogResult.Cancel;
-        var remove = UiTheme.Button(L.T("removeRulesAndRestoreIcons")); remove.Enabled = false;
-        bool removing = false;
-        dialog.FormClosing += (_, e) => { if (removing) e.Cancel = true; };
-        rules.SelectedIndexChanged += (_, _) => remove.Enabled = !removing && rules.SelectedItems.Count > 0;
-        remove.Click += async (_, _) =>
-        {
-            if (busy || removing) return;
-            EnsureUiContext();
-            busy = removing = true; remove.Enabled = close.Enabled = rules.Enabled = false;
-            try
-            {
-                foreach (var row in rules.SelectedItems.Cast<ListViewItem>().ToList())
-                {
-                    if (row.Tag is IconRule iconRule)
-                    {
-                        await controller.ChangeManyAsync(controller.Saved.Recovery.Where(iconRule.Matches), false);
-                        controller.RemoveIconRule(iconRule); rules.Items.Remove(row); continue;
-                    }
-                    var path = (string)row.Tag!;
-                    // Keep the rule available for retry if restoring an icon fails.
-                    await controller.ChangeManyAsync(controller.Saved.Recovery.Where(x => Controller.SamePath(x.Path, path)), false);
-                    controller.RemoveRule(path); rules.Items.Remove(row);
-                }
-            }
-            catch (Exception ex) { MessageBox.Show(dialog, ex.Message, L.T("operationIncomplete")); }
-            finally
-            {
-                removing = false; close.Enabled = rules.Enabled = true;
-                empty.Visible = rules.Items.Count == 0; remove.Enabled = rules.SelectedItems.Count > 0;
-                CompleteOperation();
-            }
-        };
-        buttons.Controls.Add(close); buttons.Controls.Add(remove);
-        dialog.Controls.Add(rules); dialog.Controls.Add(empty); dialog.Controls.Add(buttons);
-        dialog.Controls.Add(UiTheme.Heading(L.T("hideRules"), L.T("hideRulesScopeHelp"), Font));
-        dialog.CancelButton = close;
-        UiTheme.Apply(dialog); dialog.Shown += (_, _) => UiTheme.Apply(dialog);
-        return dialog;
+        if (!busy && !closing) await RefreshAsync();
+        return entries.ToList();
     }
+    async Task RunRuleOperationAsync(Func<Task> action)
+    {
+        if (busy || closing) throw new IOException(L.T("ruleOperationBusy"));
+        EnsureUiContext(); busy = true; timer.Stop();
+        try { await action(); }
+        finally
+        {
+            if (!closing && !IsDisposed)
+            {
+                try { entries = (await Task.Run(Scanner.Scan)).Where(e => e.Pid != Environment.ProcessId).ToList(); }
+                catch (Exception ex) { status.Text = L.T("refreshFailedPrefix") + ex.Message; }
+                RenderList(); UpdateStatus();
+            }
+            CompleteOperation(); UpdateTimer();
+        }
+    }
+    void OpenRuleEditor(TrayEntry entry)
+    {
+        if (busy || closing) return;
+        ShowRulesPage(); dashboardRulesPage?.OpenEditor(target: entry);
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)

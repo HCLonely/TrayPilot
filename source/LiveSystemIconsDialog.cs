@@ -49,9 +49,9 @@ internal sealed partial class MainForm
         }
         finally { systemIconsReleasing = false; }
     }
-    async Task<SystemIconSession> ConnectSystemIcons()
+    async Task<SystemIconSession> ConnectSystemIcons(bool force = false)
     {
-        if (systemIconSession != null && systemIconSession.Pid == SystemIconSession.ExplorerPid() && systemIconSession.Ticks > 0 && systemIconSession.Error == 0 &&
+        if (!force && systemIconSession != null && systemIconSession.Pid == SystemIconSession.ExplorerPid() && systemIconSession.Ticks > 0 && systemIconSession.Error == 0 &&
             systemIconSession.Legacy == controller.Saved.UseLegacySystemIconDiscovery) return systemIconSession;
         if (systemIconsConnecting) throw new IOException(L.T("systemNativeConnecting"));
         systemIconsConnecting = true;
@@ -75,7 +75,7 @@ internal sealed partial class MainForm
         }
         finally { systemIconsConnecting = false; _ = ReleaseUnusedSystemIcons(); }
     }
-    void ShowSystemIcons()
+    void ShowLegacySystemIconsForDiagnostics()
     {
         EnsureUiContext();
         var existing = Application.OpenForms.Cast<Form>().FirstOrDefault(x => x.Name == "LiveSystemIconsDialog");

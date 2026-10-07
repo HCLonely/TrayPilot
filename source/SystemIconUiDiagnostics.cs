@@ -108,7 +108,7 @@ internal static partial class Diagnostics
         {
             try
             {
-                driver.Start(); typeof(MainForm).GetMethod("ShowSystemIcons", flags)!.Invoke(form, null);
+                driver.Start(); typeof(MainForm).GetMethod("ShowLegacySystemIconsForDiagnostics", flags)!.Invoke(form, null);
                 for (int i = 0; i < 50 && form.systemIconSessionForDiagnostics != null; i++) await Task.Delay(100);
                 Check(form.systemIconSessionForDiagnostics == null, "Closing an unused system-icon dialog releases its native session");
             }

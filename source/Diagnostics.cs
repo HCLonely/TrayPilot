@@ -15,6 +15,17 @@ internal static partial class Diagnostics
             if (hoverPreview) args[0] = args[0].Replace("-hover", "");
             bool darkPreview = args[0].Contains("-dark");
             if (darkPreview) args[0] = args[0].Replace("-dark", "");
+            if (args[0] is "--dashboard-preview" or "--dashboard-preview-grid" or "--dashboard-preview-small" or "--dashboard-preview-en" && args.Length == 2)
+                return PreviewDashboard(args[1], darkPreview, args[0].EndsWith("-grid"), args[0].EndsWith("-small"), args[0].EndsWith("-en"));
+            if (args[0] == "--dashboard-ui-test" && args.Length == 2) return TestDashboard(args[1]);
+            if (args[0] is "--rules-preview" or "--rules-preview-editor" or "--rules-preview-en" or "--rules-preview-editor-en" or "--rules-preview-state" or "--rules-preview-small" or "--rules-preview-small-en" && args.Length == 2)
+                return PreviewRules(args[1], darkPreview, args[0].Contains("editor"), args[0].EndsWith("-en"), args[0].EndsWith("-state"), args[0].Contains("-small"));
+            if (args[0] == "--rule-editing-test" && args.Length == 2) return TestRuleEditing(args[1]);
+            if (args[0].StartsWith("--system-dashboard-preview") && args.Length == 2)
+                return PreviewSystemDashboard(args[1], darkPreview, args[0].Contains("-en"), args[0].Contains("-loading"), args[0].Contains("-failed"), args[0].Contains("-small"), args[0].Contains("-compatibility"), args[0].Contains("-bottom"));
+            if (args[0] == "--system-dashboard-test" && args.Length == 2) return TestSystemDashboard(args[1]);
+            if (args[0].StartsWith("--settings-dashboard-preview") && args.Length == 2) return PreviewSettingsDashboard(args[1], args[0], darkPreview);
+            if (args[0] == "--settings-dashboard-test" && args.Length == 2) return TestSettingsDashboard(args[1]);
             if (args[0] == "--write-icon" && args.Length == 2) { AppIcon.Save(args[1]); return 0; }
             if (args[0] == "--scan" && args.Length == 2)
             { File.WriteAllText(args[1], JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
@@ -94,7 +105,7 @@ internal static partial class Diagnostics
                     capture.Start();
                     if (args[0] == "--preview-properties-en")
                         typeof(MainForm).GetMethod("ShowProperties", flags)!.Invoke(form, new object[] { Scanner.Scan().First() });
-                    else typeof(MainForm).GetMethod(args[0].StartsWith("--preview-system-icons-") ? "ShowSystemIcons" : args[0].StartsWith("--preview-settings-") ? "ShowSettings" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowAbout", flags)!.Invoke(form, null);
+                    else typeof(MainForm).GetMethod(args[0].StartsWith("--preview-system-icons-") ? "ShowLegacySystemIconsForDiagnostics" : args[0].StartsWith("--preview-settings-") ? "ShowLegacySettingsForDiagnostics" : args[0] == "--preview-rules-en" ? "EditRules" : "ShowLegacyAboutForDiagnostics", flags)!.Invoke(form, null);
                     form.RequestExit();
                 };
                 Application.Run(form); return 0;
@@ -433,13 +444,13 @@ internal static partial class Diagnostics
                 }
                 catch (Exception ex) { failure = ex; dialog.Close(); }
             };
-            timer.Start(); typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(settingsForm, null);
+            timer.Start(); typeof(MainForm).GetMethod("ShowLegacySettingsForDiagnostics", flags)!.Invoke(settingsForm, null);
             if (failure != null) throw failure;
             check(!startup.Enabled && !controller.Saved.RestoreIconsOnExit, "Canceling Settings does not apply startup or restore-on-exit changes.");
             var stateFile = (string)typeof(Controller).GetField("file", flags)!.GetValue(controller)!;
             Directory.CreateDirectory(stateFile + ".tmp"); // Deliberately make the atomic settings write fail.
             rejectSave = true; timer.Start();
-            typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(settingsForm, null);
+            typeof(MainForm).GetMethod("ShowLegacySettingsForDiagnostics", flags)!.Invoke(settingsForm, null);
             if (failure != null) throw failure;
         }
         foreach (bool iconVisible in new[] { true, false })
@@ -798,13 +809,13 @@ internal static partial class Diagnostics
                 catch (Exception ex) { settingsError = ex; dialog.Close(); }
             };
             settingsTimer.Start();
-            typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
+            typeof(MainForm).GetMethod("ShowLegacySettingsForDiagnostics", flags)!.Invoke(form, null);
             if (settingsError != null) throw settingsError;
             check(saved && controller.Saved.RestoreIconsOnExit && controller.Saved.Language == "en-US" && !controller.Saved.CloseToTray
                 && controller.Saved.ShowAllHotkey == (int)(Keys.Control | Keys.Alt | Keys.K),
                 "Settings dialog saves language, close behavior and a captured key combination.");
             settingsTimer.Start();
-            typeof(MainForm).GetMethod("ShowSettings", flags)!.Invoke(form, null);
+            typeof(MainForm).GetMethod("ShowLegacySettingsForDiagnostics", flags)!.Invoke(form, null);
             if (settingsError != null) throw settingsError;
             check(saved && controller.Saved.Language == "en-US", "Reopening settings retains the selected English language.");
             check(startup.Enabled, "Saving settings enables startup and reopening retains it.");

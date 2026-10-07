@@ -5,6 +5,7 @@ internal sealed partial class MainForm
     void CompleteOperation()
     {
         busy = false;
+        UpdateDashboard();
         if (exitRequested && !closing && !IsDisposed)
         {
             BeginInvoke(() => { if (!busy && !closing && !IsDisposed && exitRequested) _ = ExitAsync(); });
@@ -50,13 +51,17 @@ internal sealed partial class MainForm
     }
     void ApplyTheme()
     {
-        UiTheme.Set(controller.Saved.Theme);
-        UiTheme.Apply(this); UiTheme.Apply(trayMenu); UiTheme.Apply(itemMenu);
+        UiTheme.Set(dashboardSettingsPage?.Dirty == true ? dashboardSettingsPage.Draft.Theme : controller.Saved.Theme);
+        UiTheme.Apply(this); UiTheme.Apply(trayMenu); UiTheme.Apply(itemMenu); dashboardDetailSignature = null; UpdateDashboard();
+        dashboardRulesPage?.Render();
+        dashboardSystemPage?.RefreshState(ReadSystemIconsSnapshot());
+        dashboardSettingsPage?.Render();
         foreach (Form form in Application.OpenForms) if (form != this) UiTheme.Apply(form);
     }
     void OnSystemThemeChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
     {
-        if (IsDisposed || !IsHandleCreated || controller.Saved.Theme != "system") return;
+        string mode = dashboardSettingsPage?.Dirty == true ? dashboardSettingsPage.Draft.Theme : controller.Saved.Theme;
+        if (IsDisposed || !IsHandleCreated || mode != "system") return;
         try { BeginInvoke(() => { if (!IsDisposed) ApplyTheme(); }); } catch (InvalidOperationException) { }
     }
 }

@@ -29,7 +29,7 @@ internal sealed partial class MainForm
         columnCaptions.AddRange(list.Columns.Cast<ColumnHeader>().Select(x => x.Text));
         menuBar.BackColor = Color.White; menuBar.ForeColor = UiTheme.Ink;
         menuBar.Padding = new(24, 6, 24, 6); menuBar.RenderMode = ToolStripRenderMode.Professional;
-        Controls.Add(menuBar); MainMenuStrip = menuBar;
+        Controls.Add(menuBar); MainMenuStrip = menuBar; menuBar.Visible = false;
         ApplyLanguage();
         trayMenu.Opening += (_, e) =>
         {
@@ -88,9 +88,14 @@ internal sealed partial class MainForm
 
     void ApplyLanguage()
     {
+        bool rulesActive = dashboardRulesPage?.Visible == true;
+        bool systemActive = dashboardSystemPage?.Visible == true;
+        bool settingsActive = dashboardSettingsPage?.Visible == true;
+        bool aboutActive = dashboardAboutPage?.Visible == true;
         foreach (var caption in captions) caption.Key.Text = L.T(caption.Value);
         search.PlaceholderText = L.T("searchPlaceholder");
         for (int i = 0; i < columnCaptions.Count; i++) list.Columns[i].Text = L.T(columnCaptions[i]);
+        UpdateDashboardColumns();
         // Keep the menu populated so its auto-sized height never collapses during translation.
         menuBar.SuspendLayout();
         try
@@ -107,6 +112,10 @@ internal sealed partial class MainForm
         }
         finally { menuBar.ResumeLayout(true); }
         RenderList(); UpdateStatus(); UiTheme.Apply(menuBar);
+        if (rulesActive) ShowRulesPage();
+        if (systemActive) ShowSystemIcons();
+        if (settingsActive) ShowSettings();
+        if (aboutActive) ShowAbout();
     }
 
     void ClearTrayMenu()
@@ -247,7 +256,7 @@ internal sealed partial class MainForm
         trayMenu.Close(); exitRequested = true; Close();
     }
 
-    void ShowAbout()
+    void ShowLegacyAboutForDiagnostics()
     {
         trayMenu.Close();
         const string projectUrl = UpdateChecker.ProjectUrl;
@@ -278,7 +287,7 @@ internal sealed partial class MainForm
         hotkeyWarning |= !hideRulesHotkey.TrySet(controller.Saved.HideRulesHotkeyEnabled, (Keys)controller.Saved.HideRulesHotkey);
     }
 
-    void ShowSettings()
+    void ShowLegacySettingsForDiagnostics()
     {
         trayMenu.Close();
         using var dialog = new Form { Text = L.T("settings"), Size = new(800, 788), FormBorderStyle = FormBorderStyle.FixedDialog,
