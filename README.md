@@ -4,14 +4,12 @@ Keep your Windows tray tidy: hide unwanted icons while their applications keep r
 
 [简体中文](README_CN.md) | English
 
-![TrayPilot in action](./Example.gif)
-
 ## Download and get started
 
 For **Windows 11 x64**, primarily tested on Windows 11 25H2.
 
 1. Visit the [download page](https://github.com/HCLonely/TrayPilot/releases) and choose **Full (recommended)**. Choose the smaller **Lite** package if you already have .NET 10 Desktop Runtime x64 installed.
-2. Extract the package to a folder you plan to keep, then run `TrayPilot.exe`. Full needs no separate runtime installation.
+2. Extract the package to a folder you plan to keep, then run `TrayPilot.exe`. Full includes .NET. The interface also requires WebView2 Evergreen Runtime, normally available on Windows 11.
 3. Find an unwanted icon and **double-click to hide it; double-click again to restore it**.
 4. Closing the window keeps TrayPilot running in the tray by default. Choose **Exit** from its menu to quit.
 
@@ -23,15 +21,15 @@ Hidden icons disappear from both the taskbar and its overflow menu. **Their appl
 | --- | --- |
 | Hide or restore one icon | Double-click its icon or row |
 | Change several icons at once | Ctrl / Shift-click to select, then choose **Hide selected** / **Restore selected** |
-| Keep an icon hidden automatically | Right-click it and choose **Auto-hide only this icon** |
-| Manage all icons from one application | Right-click and choose **All icons for this application** |
+| Keep an icon hidden automatically | Select it, choose **Create hide rule** in Details, and select single-icon scope |
+| Manage all icons from one application | Choose program scope when creating a rule; quick controls group icons by application |
 | Find an application | Search by name or path |
 | Stop hiding an icon automatically | Open **Hide rules** and remove its rule |
 | Restore icons hidden by TrayPilot | Choose **Restore all** |
 
-Both list and grid layouts support double-clicks and multiple selection. Faded items are hidden; **✓ Matched** or a corner badge indicates an automatic hide rule.
+Both list and grid layouts support double-clicks and multiple selection. Faded items are hidden; rule labels indicate an automatic hide rule.
 
-The right-click menu also offers **Properties** and **End task**. Ending a task closes the application and may lose unsaved work. Use hiding when you only want its icon gone.
+The selected icon’s Details area offers **Program properties** and **End task**. Ending a task closes the application and may lose unsaved work. Use hiding when you only want its icon gone.
 
 ## Automatic hiding and restoration
 

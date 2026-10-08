@@ -4,6 +4,8 @@ using System.Text;
 namespace TrayPilot;
 internal static partial class Native
 {
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+    internal static extern bool GetSystemAnimationSetting(uint action, uint parameter, out int enabled, uint flags);
     [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(nint window, int attribute, ref int value, int size);
     [DllImport("user32.dll")] internal static extern bool DestroyIcon(nint icon);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

@@ -22,6 +22,7 @@ internal sealed class SavedState
     public bool CloseToTray { get; set; } = true;
     public bool RestoreIconsOnExit { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
+    public bool WelcomeDismissed { get; set; }
     public bool MainHotkeyEnabled { get; set; }
     public int MainHotkey { get; set; } = (int)(Keys.Control | Keys.Alt | Keys.M);
     public string Theme { get; set; } = "system";

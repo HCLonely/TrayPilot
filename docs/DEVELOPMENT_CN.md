@@ -12,7 +12,7 @@
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-发布输出为单个 `app/TrayPilot.exe`，包含内置语言包与原生模块。完整版包含 .NET（原生运行时组件在启动时自动释放）；精简版需要 .NET 10 Desktop Runtime x64。源码位于 `source/`，使用 C#、Windows Forms 和 Win32 API。
+发布输出为单个 `app/TrayPilot.exe`，包含内置语言包与原生模块。完整版包含 .NET（原生运行时组件在启动时自动释放）；精简版需要 .NET 10 Desktop Runtime x64。源码位于 `source/`，使用 C#、WebView2 与 Win32 API；Windows Forms 仅承担窗口和托盘宿主。所有页面资源内嵌，不访问网络，需要 WebView2 Evergreen Runtime。
 
 ### 识别诊断
 
@@ -24,28 +24,23 @@ dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained 
 
 前两项分别测试新版方案和旧方案，报告包含识别结果与方案名称；失败详情写入对应的 `.error.txt` 文件。第三项检查本机符号缓存及损坏、错版缓存的拒绝行为。
 
-### 刷新与资源占用
+### 刷新与启动
 
-- 主窗口可见且启用自动刷新时，每 2.5 秒完整扫描。后台有规则或恢复记录时，每 2.5 秒检查已知图标，约每 10 秒完整发现；空闲后台自动刷新为 15 秒。手动刷新和打开主窗口强制完整发现。菜单打开期间延后扫描。
-- 自动刷新开关控制定期列表展示；有效规则与恢复记录维护可独立继续。隐藏或最小化窗口不渲染列表。
-- 行变化判断直接比较字段和图标字节，不构造 JSON/Base64。状态、规则和图标变化更新原行；结构、过滤条件或语言变化才重建列表。
-- 每个主窗口维护最多 256 项图标缓存，按图标身份、进程启动时间、尺寸、隐藏状态及文件访问策略区分。快照变化使缓存失效；淘汰和窗口释放时销毁 Bitmap，调用方持有独立副本。
-- 扫描中的进程信息按 PID 复用，进程时间查询回退按轮次复用系统快照。常规进程路径查询使用 1,024 字符缓冲区，不足时扩展至 32,768 字符。真正修改图标前仍重新校验所属进程。
-- 批量隐藏先持久化恢复记录，再执行修改；批量恢复仅移除成功项并合并保存。异步等待在 UI 上下文中继续，操作、刷新与退出恢复串行执行。启动恢复及同步诊断保留同步入口。
-- 系统图标窗口关闭后停止采集外观；无隐藏选择时等待恢复确认后释放会话。释放等待上限为 3 秒，异常或超时后原生停止路径仍尝试恢复。仍需管理系统图标时保留 250 毫秒巡检，以继续识别动态控件。
-
-可使用单文件发布版运行以下诊断。普通集成测试和系统图标测试会短暂创建测试图标或切换系统图标，并在结束时恢复。
+Web 页面增量更新现有行，保留图片、选择、焦点和滚动；相同数据零 DOM 更新。主窗口自动发现每 2.5 秒执行，后台规则与恢复记录复用已有扫描会话。启动时在内存中合并内嵌 HTML、CSS 和脚本，提前准备并复用快捷面板的 WebView2。加载失败提供错误与重试。
 
 ```powershell
+.\app\TrayPilot.exe --web-startup-test .\startup.json
+.\app\TrayPilot.exe --web-startup-live-test .\startup-live.json
+.\app\TrayPilot.exe --web-feedback-preview .\interface.png
+.\app\TrayPilot.exe --web-feedback-bridge-test .\feedback.json
+.\app\TrayPilot.exe --web-preferences-bridge-test .\preferences.json
+.\app\TrayPilot.exe --web-system-bridge-test .\system.json
+.\app\TrayPilot.exe --web-rules-live-test .\rules.json
 .\app\TrayPilot.exe --self-test .\self-test.txt
-.\app\TrayPilot.exe --refresh-regression-test .\refresh-regression.txt
 .\app\TrayPilot.exe --resilience-test .\resilience.txt
-.\app\TrayPilot.exe --refresh-performance-test .\refresh-performance.txt
-.\app\TrayPilot.exe --menu-performance-test .\menu-performance.txt
-.\app\TrayPilot.exe --system-icons-ui-test .\system-icons-ui.txt
 ```
 
-刷新基准使用 80 个固定种子的 32×32 图标，分别测量 100 次无变化渲染、30 次单行状态变化以及 5 次完整扫描；每组先预热 5 次。分配量是当前线程的累计托管分配，不代表常驻内存或整个进程 CPU。比较版本时应使用同一基准及相同机器，重复运行并比较中位数。回归诊断检查缓存失效、容量上限、GDI 资源、局部更新和后台调度。
+启动耗时来自本机诊断会话；比较时应使用相同条件并重复测量。实际启动诊断使用隔离设置进行正常只读扫描。隐藏、恢复、结束任务桥接仅操作测试进程，启动项使用专属测试注册项；系统桥接使用模拟状态。
 
 ## 添加语言包
 
@@ -88,7 +83,7 @@ dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained 
 本项目是面向 **Windows 11 25H2** 的原型。其他系统版本、未来 Windows 补丁及特殊软件的兼容性需要实际验证。
 
 - 优先使用 Windows 缓存图标，依次回退到 EXE 图标、通用图标。缓存图标及提示可能不是实时内容；名称主要来自 EXE 文件描述，脚本可能显示宿主名称。
-- 音量、网络、电池、时钟等 Explorer 内建控件通过独立的 **系统图标** 窗口直接控制，兼容性及生效方式见上文。
+- 音量、网络、电池、时钟等 Explorer 内建控件通过**系统图标** 页面直接控制，兼容性及生效方式见上文。
 - 无托盘记录、路径匹配失败、受保护进程或特殊实现可能无法识别或控制。
 
 ## 系统图标实现

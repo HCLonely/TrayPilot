@@ -46,21 +46,22 @@ internal sealed partial class MainForm
             finally { UpdateEntryStates(); }
             UpdateStatus();
         }
-        catch (Exception ex) { status.Text = L.T("operationIncomplete") + ": " + ex.Message; }
+        catch (Exception ex) { lastStatus = L.T("operationIncomplete") + ": " + ex.Message; }
         finally { CompleteOperation(); UpdateTimer(); }
     }
     void ApplyTheme()
     {
-        UiTheme.Set(dashboardSettingsPage?.Dirty == true ? dashboardSettingsPage.Draft.Theme : controller.Saved.Theme);
-        UiTheme.Apply(this); UiTheme.Apply(trayMenu); UiTheme.Apply(itemMenu); dashboardDetailSignature = null; UpdateDashboard();
-        dashboardRulesPage?.Render();
-        dashboardSystemPage?.RefreshState(ReadSystemIconsSnapshot());
-        dashboardSettingsPage?.Render();
-        foreach (Form form in Application.OpenForms) if (form != this) UiTheme.Apply(form);
+        UiTheme.Set(WebSettingsDirty ? webSettingsDraft!.Theme : controller.Saved.Theme);
+        UiTheme.Apply(this);
+        if (webInterface != null) webInterface.DefaultBackgroundColor = UiTheme.Canvas;
+        if (webStartupCover != null) { webStartupCover.BackColor = UiTheme.Canvas; webStartupCover.Invalidate(); }
+        if (webTrayPanel != null) UiTheme.Apply(webTrayPanel);
+        if (webTrayView != null) webTrayView.DefaultBackgroundColor = UiTheme.Canvas;
+        PublishWebState(force: true); PublishTrayState(force: true);
     }
     void OnSystemThemeChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
     {
-        string mode = dashboardSettingsPage?.Dirty == true ? dashboardSettingsPage.Draft.Theme : controller.Saved.Theme;
+        string mode = WebSettingsDirty ? webSettingsDraft!.Theme : controller.Saved.Theme;
         if (IsDisposed || !IsHandleCreated || mode != "system") return;
         try { BeginInvoke(() => { if (!IsDisposed) ApplyTheme(); }); } catch (InvalidOperationException) { }
     }

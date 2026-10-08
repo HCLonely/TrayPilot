@@ -5,7 +5,7 @@ namespace TrayPilot;
 
 internal static class SystemIconImages
 {
-    // White alpha masks are tinted by TrayListView for normal, hover and selected rows.
+    // White alpha masks retain the corresponding system-control shape for the web interface.
     internal static Bitmap Create(int mask, int size, (string Text, string Font) appearance = default)
     {
         var image = new Bitmap(size, size);

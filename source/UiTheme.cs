@@ -1,5 +1,3 @@
-using System.Drawing.Drawing2D;
-
 namespace TrayPilot;
 
 internal static class UiTheme
@@ -7,22 +5,9 @@ internal static class UiTheme
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Form, Icon> FormIcons = new();
     internal static bool Dark { get; private set; }
     internal static Color Canvas => Dark ? Color.FromArgb(16, 23, 36) : Color.FromArgb(233, 238, 247);
-    internal static Color Surface => Dark ? Color.FromArgb(28, 38, 56) : Color.FromArgb(255, 255, 255);
     internal static Color Ink => Dark ? Color.FromArgb(234, 240, 250) : Color.FromArgb(23, 36, 59);
     internal static Color Muted => Dark ? Color.FromArgb(166, 180, 202) : Color.FromArgb(82, 97, 120);
-    internal static Color Accent => Dark ? Color.FromArgb(156, 187, 255) : Color.FromArgb(36, 88, 211);
-    internal static Color Highlight => Color.FromArgb(42, 96, 204);
-    internal static Color Selection => Dark ? Color.FromArgb(38, 77, 148) : Color.FromArgb(30, 72, 160);
-    internal static Color SelectionBorder => Dark ? Color.FromArgb(156, 196, 255) : Color.FromArgb(16, 48, 115);
-    internal static Color SelectedSurface => Dark ? Color.FromArgb(32, 49, 72) : Color.FromArgb(235, 243, 255);
-    internal static Color SelectedSurfaceEnd => Dark ? Color.FromArgb(28, 42, 62) : Color.FromArgb(225, 236, 253);
-    internal static Color SelectedOutline => Dark ? Color.FromArgb(68, 98, 138) : Color.FromArgb(169, 196, 238);
-    internal static Color Border => Dark ? Color.FromArgb(61, 78, 102) : Color.FromArgb(214, 223, 236);
     internal static Color Header => Dark ? Color.FromArgb(37, 50, 71) : Color.FromArgb(241, 245, 250);
-    internal static Color Stripe => Dark ? Color.FromArgb(28, 38, 56) : Color.FromArgb(255, 255, 255);
-    internal static Color Hover => Dark ? Color.FromArgb(43, 61, 92) : Color.FromArgb(234, 241, 255);
-    internal static Color Primary => Color.FromArgb(36, 88, 211);
-    internal static Color PrimaryHover => Color.FromArgb(28, 73, 181);
 
     internal static bool Set(string mode)
     {
@@ -35,269 +20,24 @@ internal static class UiTheme
         bool changed = dark != Dark; Dark = dark; return changed;
     }
 
-    internal static void Apply(Control control, bool surface = false)
+    internal static void Apply(Form form)
     {
-        surface |= control is SurfacePanel || control.Tag as string == "surface";
-        bool muted = control.ForeColor == Color.FromArgb(82, 97, 120) || control.ForeColor == Color.FromArgb(166, 180, 202) || control.ForeColor == Color.FromArgb(94, 109, 131) || control.ForeColor == Color.FromArgb(164, 177, 198)
-            || control.ForeColor == Color.FromArgb(106, 119, 139) || control.ForeColor == Color.FromArgb(156, 171, 193);
-        control.ForeColor = control.ForeColor == Color.Firebrick ? Color.Firebrick : muted ? Muted : Ink;
-        control.BackColor = surface ? Surface : Canvas;
-        if (control is TextBox text) text.BackColor = text.ReadOnly ? Header : Surface;
-        if (control is ComboBox) control.BackColor = Surface;
-        if (control is ListView list)
+        form.BackColor = Canvas; form.ForeColor = Ink;
+        if (!FormIcons.TryGetValue(form, out var icon))
         {
-            list.BackColor = Surface;
-            foreach (ListViewItem row in list.Items)
+            icon = AppIcon.Create(); FormIcons.Add(form, icon); var ownedIcon = icon;
+            form.Disposed += (_, _) => ownedIcon.Dispose();
+        }
+        form.Icon = icon;
+        if (form.IsHandleCreated)
+        {
+            int dark = Dark ? 1 : 0; Native.DwmSetWindowAttribute(form.Handle, 20, ref dark, sizeof(int));
+            if (!SystemInformation.HighContrast)
             {
-                row.BackColor = list.View == View.Details && row.Index % 2 != 0 ? Stripe : Surface;
-                row.ForeColor = row.Tag is TrayEntry entry && entry.State == 1 ? Muted : Ink;
+                int backdrop = 2, corners = 2;
+                Native.DwmSetWindowAttribute(form.Handle, 38, ref backdrop, sizeof(int));
+                Native.DwmSetWindowAttribute(form.Handle, 33, ref corners, sizeof(int));
             }
         }
-        if (control is Button button)
-        {
-            bool primary = button is ThemeButton { Primary: true };
-            button.BackColor = primary ? Primary : Surface; button.ForeColor = primary ? Color.White : Ink;
-            button.FlatAppearance.BorderColor = primary ? Primary : Border;
-            button.FlatAppearance.MouseOverBackColor = primary ? PrimaryHover : Hover;
-            button.FlatAppearance.MouseDownBackColor = primary ? Selection : Header;
-        }
-        if (control is RadioButton radio)
-        {
-            radio.BackColor = radio.Checked ? Header : Surface; radio.ForeColor = radio.Checked ? Accent : Muted;
-            radio.FlatAppearance.BorderColor = Border; radio.FlatAppearance.CheckedBackColor = Header;
-        }
-        if (control is ToolStrip strip)
-        {
-            strip.BackColor = Surface; strip.Renderer = new ThemeMenuRenderer();
-            foreach (ToolStripItem item in strip.Items) item.ForeColor = Ink;
-        }
-        foreach (Control child in control.Controls) Apply(child, surface);
-        if (control is Form form)
-        {
-            if (!FormIcons.TryGetValue(form, out var icon))
-            {
-                icon = AppIcon.Create(); FormIcons.Add(form, icon); var ownedIcon = icon;
-                form.Disposed += (_, _) => ownedIcon.Dispose();
-            }
-            form.Icon = icon;
-            if (form.IsHandleCreated)
-            {
-                int dark = Dark ? 1 : 0; Native.DwmSetWindowAttribute(form.Handle, 20, ref dark, sizeof(int));
-                if (form is MainForm && !SystemInformation.HighContrast)
-                {
-                    int backdrop = 2, corners = 2;
-                    // Supported Windows 11 builds add Mica to the window chrome.
-                    // Older builds simply reject these attributes; content stays opaque.
-                    Native.DwmSetWindowAttribute(form.Handle, 38, ref backdrop, sizeof(int));
-                    Native.DwmSetWindowAttribute(form.Handle, 33, ref corners, sizeof(int));
-                }
-            }
-        }
-        control.Invalidate(true);
-    }
-
-    internal static Button Button(string text, bool primary = false)
-    {
-        var button = new ThemeButton { Primary = primary, Text = text, AutoSize = true, MinimumSize = new(82, 36),
-            Padding = new(12, 4, 12, 4), FlatStyle = FlatStyle.Flat, Margin = new(0, 0, 8, 0),
-            BackColor = primary ? Primary : Surface, ForeColor = primary ? Color.White : Ink,
-            UseVisualStyleBackColor = false, Cursor = Cursors.Hand };
-        button.FlatAppearance.BorderColor = primary ? Primary : Border;
-        button.FlatAppearance.MouseOverBackColor = primary ? PrimaryHover : Hover;
-        return button;
-    }
-
-    internal static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
-    {
-        var path = new GraphicsPath();
-        int diameter = Math.Max(1, Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height)));
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
-    internal static Panel Heading(string title, string subtitle, Font font)
-    {
-        var panel = new Panel { Dock = DockStyle.Top, Height = 92 };
-        panel.Controls.Add(new Label { Text = subtitle, UseMnemonic = false, Dock = DockStyle.Fill, ForeColor = Muted });
-        panel.Controls.Add(new Label { Text = title, UseMnemonic = false, Dock = DockStyle.Top, Height = 48, Font = new(font.FontFamily, 21, FontStyle.Bold), ForeColor = Ink });
-        return panel;
-    }
-
-    internal static void StyleList(ListView list)
-    {
-        list.BorderStyle = BorderStyle.None; list.BackColor = Surface; list.ForeColor = Ink;
-        list.GridLines = false; list.OwnerDraw = true;
-        list.DrawColumnHeader += (_, e) =>
-        {
-            using var brush = new SolidBrush(Header); e.Graphics.FillRectangle(brush, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, e.Header!.Text, list.Font, Rectangle.Inflate(e.Bounds, -10, 0), Muted,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-        };
-        list.DrawItem += (_, e) => { if (list.View != View.Details) e.DrawDefault = true; };
-        list.DrawSubItem += (_, e) => e.DrawDefault = true;
-    }
-
-    internal static void Toggle(RadioButton button)
-    {
-        button.UseMnemonic = false;
-        button.FlatStyle = FlatStyle.Flat; button.Padding = new(10, 5, 10, 5);
-        button.Margin = Padding.Empty; button.MinimumSize = new(60, 36);
-        button.TextAlign = ContentAlignment.MiddleCenter; button.UseVisualStyleBackColor = false;
-        button.FlatAppearance.BorderColor = Border; button.FlatAppearance.CheckedBackColor = Color.FromArgb(225, 234, 254);
-        void Update() { button.ForeColor = button.Checked ? Accent : Muted; button.BackColor = button.Checked ? Header : Surface; }
-        button.CheckedChanged += (_, _) => Update(); Update();
-    }
-}
-
-internal sealed class SurfacePanel : Panel
-{
-    internal SurfacePanel() { DoubleBuffered = true; BackColor = Color.Transparent; }
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    internal bool FocusBorder { get; set; }
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        if (Width < 16 || Height < 16) return;
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        e.Graphics.Clear(Parent?.BackColor ?? UiTheme.Canvas);
-        var bounds = new Rectangle(0, 0, Width - 1, Height - 1);
-        using var path = UiTheme.RoundedRectangle(bounds, 10 * DeviceDpi / 96);
-        using var fill = new SolidBrush(UiTheme.Surface);
-        using var border = new Pen(FocusBorder && ContainsFocus ? UiTheme.Accent : UiTheme.Border);
-        e.Graphics.FillPath(fill, path); e.Graphics.DrawPath(border, path);
-    }
-}
-
-// Native button semantics and keyboard activation, with immediate, static states.
-internal sealed class ThemeButton : Button
-{
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    internal bool Primary { get; init; }
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    internal bool Selected { get; set; }
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    internal string? Glyph { get; set; }
-    bool hovered, pressed;
-    internal ThemeButton() { DoubleBuffered = true; }
-    protected override void OnMouseEnter(EventArgs e) { hovered = true; base.OnMouseEnter(e); Invalidate(); }
-    protected override void OnMouseLeave(EventArgs e) { hovered = false; base.OnMouseLeave(e); Invalidate(); }
-    protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) pressed = true; base.OnMouseDown(e); Invalidate(); }
-    protected override void OnMouseUp(MouseEventArgs e) { pressed = false; base.OnMouseUp(e); Invalidate(); }
-    protected override void OnMouseCaptureChanged(EventArgs e) { pressed = false; base.OnMouseCaptureChanged(e); Invalidate(); }
-    protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Space) pressed = true; base.OnKeyDown(e); Invalidate(); }
-    protected override void OnKeyUp(KeyEventArgs e) { pressed = false; base.OnKeyUp(e); Invalidate(); }
-    protected override void OnLostFocus(EventArgs e) { pressed = false; base.OnLostFocus(e); Invalidate(); }
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        if (Width < 3 || Height < 3) return;
-        e.Graphics.Clear(Parent?.BackColor ?? UiTheme.Canvas);
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        int inset = Math.Max(1, DeviceDpi / 96);
-        var bounds = new Rectangle(inset, inset, Width - inset * 2 - 1, Height - inset * 2 - 1);
-        using var path = UiTheme.RoundedRectangle(bounds, 7 * DeviceDpi / 96);
-        var background = !Enabled ? UiTheme.Header : Primary
-            ? pressed && (hovered || Focused) ? UiTheme.Selection : hovered ? UiTheme.PrimaryHover : UiTheme.Primary
-            : pressed && (hovered || Focused) ? UiTheme.Header : Selected || hovered ? UiTheme.Hover : UiTheme.Surface;
-        using var fill = new SolidBrush(background);
-        using var border = new Pen(Focused && ShowFocusCues ? UiTheme.Accent : Primary && Enabled ? background : UiTheme.Border,
-            Focused && ShowFocusCues ? 2 * DeviceDpi / 96f : 1);
-        e.Graphics.FillPath(fill, path); e.Graphics.DrawPath(border, path);
-        var flags = (TextAlign == ContentAlignment.MiddleLeft ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter) | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
-        if (!ShowKeyboardCues) flags |= TextFormatFlags.HidePrefix;
-        var textBounds = Rectangle.Inflate(bounds, -Padding.Horizontal / 2, 0);
-        if (Glyph != null)
-        {
-            int size = 17 * DeviceDpi / 96, offset = 12 * DeviceDpi / 96;
-            DashboardGlyph.Draw(e.Graphics, Glyph, new(bounds.Left + offset, bounds.Top + (bounds.Height - size) / 2, size, size), Selected ? UiTheme.Accent : UiTheme.Muted);
-            textBounds.X += size + offset; textBounds.Width -= size + offset;
-        }
-        TextRenderer.DrawText(e.Graphics, Text, Font, textBounds,
-            !Enabled ? UiTheme.Muted : Primary ? Color.White : Selected ? UiTheme.Accent : UiTheme.Ink, flags);
-    }
-}
-
-internal sealed class SmoothListView : ListView
-{
-    internal SmoothListView() { DoubleBuffered = true; }
-}
-
-internal sealed class ThemeMenuColors : ProfessionalColorTable
-{
-    public override Color ToolStripDropDownBackground => UiTheme.Surface;
-    public override Color ImageMarginGradientBegin => UiTheme.Surface;
-    public override Color ImageMarginGradientMiddle => UiTheme.Surface;
-    public override Color ImageMarginGradientEnd => UiTheme.Surface;
-    public override Color MenuItemSelected => UiTheme.Highlight;
-    public override Color MenuItemSelectedGradientBegin => UiTheme.Highlight;
-    public override Color MenuItemSelectedGradientEnd => UiTheme.Highlight;
-    public override Color MenuItemPressedGradientBegin => UiTheme.Header;
-    public override Color MenuItemPressedGradientMiddle => UiTheme.Header;
-    public override Color MenuItemPressedGradientEnd => UiTheme.Header;
-    public override Color MenuBorder => UiTheme.Border;
-    public override Color SeparatorDark => UiTheme.Border;
-    public override Color SeparatorLight => UiTheme.Surface;
-}
-internal sealed class ThemeMenuRenderer : ToolStripProfessionalRenderer
-{
-    internal ThemeMenuRenderer() : base(new ThemeMenuColors()) { }
-    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
-    {
-        var bounds = e.ImageRectangle;
-        using var fill = new SolidBrush(e.Item.Selected ? UiTheme.Highlight : UiTheme.Header);
-        e.Graphics.FillRectangle(fill, bounds);
-        using var pen = new Pen(e.Item.Selected ? Color.White : UiTheme.Ink, 2);
-        e.Graphics.DrawLines(pen, new[] { new Point(bounds.Left + 3, bounds.Top + bounds.Height / 2),
-            new Point(bounds.Left + bounds.Width / 2 - 1, bounds.Bottom - 4), new Point(bounds.Right - 3, bounds.Top + 3) });
-    }
-    protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e) { e.ArrowColor = UiTheme.Ink; base.OnRenderArrow(e); }
-    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
-    {
-        e.TextColor = !e.Item.Enabled ? UiTheme.Muted : e.Item.Selected ? Color.White : UiTheme.Ink;
-        base.OnRenderItemText(e);
-    }
-}
-
-internal sealed class ThemeComboBox : ComboBox
-{
-    internal ThemeComboBox() { DrawMode = DrawMode.OwnerDrawFixed; FlatStyle = FlatStyle.Flat; ItemHeight = 28; }
-    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
-    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
-    protected override void WndProc(ref Message message)
-    {
-        base.WndProc(ref message);
-        if (!IsHandleCreated || IsDisposed || Width < 2 || Height < 2) return;
-        if (message.Msg != 0x000F && message.Msg != 0x0317 && message.Msg != 0x0318) return;
-        using var graphics = message.Msg == 0x000F ? Graphics.FromHwnd(Handle)
-            : message.WParam != 0 ? Graphics.FromHdc(message.WParam) : null;
-        if (graphics == null) return;
-        if (DropDownStyle == ComboBoxStyle.DropDownList)
-        {
-            // Native WM_PRINT can omit the owner-drawn selection field.
-            // Paint it consistently for the live control and bitmap previews.
-            using var fill = new SolidBrush(UiTheme.Surface);
-            graphics.FillRectangle(fill, ClientRectangle);
-            int inset = 8 * DeviceDpi / 96, arrowWidth = 24 * DeviceDpi / 96;
-            TextRenderer.DrawText(graphics, SelectedItem == null ? "" : GetItemText(SelectedItem), Font,
-                new Rectangle(inset, 1, Math.Max(1, Width - arrowWidth - inset), Height - 2), Enabled ? UiTheme.Ink : UiTheme.Muted,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-            int x = Width - arrowWidth / 2, y = Height / 2;
-            using var arrow = new Pen(UiTheme.Muted, 1.5f * DeviceDpi / 96);
-            graphics.DrawLines(arrow, new Point[] { new(x - 4, y - 2), new(x, y + 2), new(x + 4, y - 2) });
-        }
-        using var pen = new Pen(Focused ? UiTheme.Accent : UiTheme.Border);
-        graphics.DrawRectangle(pen, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
-    }
-    protected override void OnDrawItem(DrawItemEventArgs e)
-    {
-        bool selected = (e.State & DrawItemState.Selected) != 0;
-        using var fill = new SolidBrush(selected ? UiTheme.Highlight : UiTheme.Surface);
-        e.Graphics.FillRectangle(fill, e.Bounds);
-        if (e.Index >= 0) TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, Rectangle.Inflate(e.Bounds, -4, 0), selected ? Color.White : UiTheme.Ink,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-        e.DrawFocusRectangle();
     }
 }

@@ -12,7 +12,7 @@ On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK, 
 dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
 ```
 
-The publish output is a single `app/TrayPilot.exe`, including built-in languages and the native helper. The self-contained build includes .NET (native runtime components extract at launch); the lite build requires .NET 10 Desktop Runtime x64. Sources are under `source/`, using C#, Windows Forms and Win32 APIs.
+The publish output is a single `app/TrayPilot.exe`, including built-in languages and the native helper. The self-contained build includes .NET (native runtime components extract at launch); the lite build requires .NET 10 Desktop Runtime x64. Sources are under `source/`, using C#, WebView2 and Win32 APIs; Windows Forms hosts the window and tray icon. WebView2 Evergreen Runtime is required.
 
 ### Detection diagnostics
 
@@ -24,27 +24,23 @@ The publish output is a single `app/TrayPilot.exe`, including built-in languages
 
 The first two commands test the updated and original methods respectively, reporting the backend and detected controls. Failures are written to the corresponding `.error.txt` file. The third checks the current symbol cache and rejection of corrupt or mismatched PDBs.
 
-### Refresh and resource usage
+### Refresh and startup
 
-- Visible automatic refresh performs a full scan every 2.5 seconds. Background rule/recovery maintenance checks known icons every 2.5 seconds and performs full discovery approximately every 10 seconds. Idle background automatic refresh uses 15 seconds. Manual refresh and opening the main window request full discovery; open menus defer scanning.
-- Disabling automatic list refresh does not disable active rules or recovery maintenance. Hidden and minimized windows skip rendering.
-- Rendering compares fields and snapshot bytes directly. State, rule and image changes update existing rows; structural, filter and language changes rebuild the list. Each form owns a bounded 256-entry image cache with deterministic eviction and disposal.
-- Scan-local process metadata and fallback process snapshots are reused. Process path buffers start at 1,024 characters and grow to 32,768 when needed. Icon modifications still validate the live owner.
-- Batch hiding persists recovery records before modifications. Batch restoration saves successful removals together. UI operations, refresh and exit restoration run serially with asynchronous state polling; startup recovery and synchronous diagnostics retain synchronous entry points.
-- Background system-icon sessions skip appearance capture. Closing the dialog with no hidden selections releases the session after restoration acknowledgement, with a three-second wait limit. The native stop path also attempts restoration. Active system-icon management retains 250 ms discovery polling for dynamic controls.
-
-Run these diagnostics using a single-file published executable. Integration diagnostics temporarily create test icons or change system icons and restore them afterwards.
+Web pages update existing rows and preserve images, selection, focus and scroll. Identical state causes no DOM mutations. Foreground automatic discovery runs every 2.5 seconds; background rule/recovery checks reuse the scan session. Startup bundles embedded HTML, CSS and scripts in memory, and preloads the reusable quick-control view. Loading failures provide retry.
 
 ```powershell
+.\app\TrayPilot.exe --web-startup-test .\startup.json
+.\app\TrayPilot.exe --web-startup-live-test .\startup-live.json
+.\app\TrayPilot.exe --web-feedback-preview .\interface.png
+.\app\TrayPilot.exe --web-feedback-bridge-test .\feedback.json
+.\app\TrayPilot.exe --web-preferences-bridge-test .\preferences.json
+.\app\TrayPilot.exe --web-system-bridge-test .\system.json
+.\app\TrayPilot.exe --web-rules-live-test .\rules.json
 .\app\TrayPilot.exe --self-test .\self-test.txt
-.\app\TrayPilot.exe --refresh-regression-test .\refresh-regression.txt
 .\app\TrayPilot.exe --resilience-test .\resilience.txt
-.\app\TrayPilot.exe --refresh-performance-test .\refresh-performance.txt
-.\app\TrayPilot.exe --menu-performance-test .\menu-performance.txt
-.\app\TrayPilot.exe --system-icons-ui-test .\system-icons-ui.txt
 ```
 
-The refresh benchmark uses 80 seeded 32×32 snapshots, five warmups per workload, 100 unchanged renders, 30 single-row state changes and five full scans. Allocation counts measure cumulative managed allocations on the calling thread, not resident memory or total process CPU. Compare repeated runs of the same harness on the same machine using medians. Regression checks cover cache invalidation and limits, GDI resources, incremental row updates and background scheduling.
+Startup timings measure window construction through first presentation in the current diagnostic session. Compare repeated runs on the same machine and environment. The live startup diagnostic uses isolated settings and normal read-only discovery. Visibility and termination bridge tests operate only on test-owned processes; startup registration uses isolated entries. System bridge tests use simulated controls.
 
 ## Add a language pack
 
@@ -87,7 +83,7 @@ Single-instance activation precedes settings loading. Startup recovery runs seri
 This project is a prototype targeting **Windows 11 25H2**. Other Windows versions, future patches and unusual applications require validation on the actual system.
 
 - Icons come from the Windows cache, then the executable, then a generic fallback. Cached icons and tooltips may be stale. Names mainly come from executable file descriptions, so scripts may display their host application's name.
-- Explorer's built-in controls have a separate **System icons** control dialog; see its compatibility and activation limitations above.
+- Explorer's built-in controls have the **System icons** page; see its compatibility and activation limitations above.
 - Missing tray records, unmatched paths, protected processes and special implementations may prevent discovery or control.
 
 ## System icon implementation
