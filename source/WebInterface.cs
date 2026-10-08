@@ -123,7 +123,7 @@ internal sealed partial class MainForm
     }
 
     static readonly Dictionary<string, byte[]> webDocuments = new();
-    static byte[] WebDocumentBytes(string file)
+    internal static byte[] WebDocumentBytes(string file)
     {
         if (webDocuments.TryGetValue(file, out var cached)) return cached;
         static string Read(string name)

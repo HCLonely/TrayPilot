@@ -6,11 +6,21 @@
 
 ### Local build
 
-On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK, together with the .NET 10 SDK or a newer SDK supporting `net10.0-windows`, then run from the repository root:
+On Windows, install Git, Visual Studio 2022 C++ x64 build tools and the Windows SDK, together with the .NET 10 SDK or a newer SDK supporting `net10.0-windows`. Double-click `build.bat` in the `scripts` directory to build; the window keeps the result visible until you press a key. The first build requires internet access to restore NuGet packages.
+
+Alternatively, run in PowerShell:
 
 ```powershell
-dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
+.\scripts\build.ps1
+
+# Lite package (requires .NET 10 Desktop Runtime x64)
+.\scripts\build.ps1 -Package lite -OutputDirectory output\lite
+
+# Custom configuration and output directory
+.\scripts\build.ps1 -Configuration Debug -OutputDirectory output\debug
 ```
+
+The default builds the Windows x64 full package in Release mode at `app/TrayPilot.exe`, automatically building and embedding the C++ native helper. Relative output paths are resolved against the repository root. Failures return a nonzero exit code. If PowerShell execution policy blocks the script, use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1`.
 
 The publish output is a single `app/TrayPilot.exe`, including built-in languages and the native helper. The self-contained build includes .NET (native runtime components extract at launch); the lite build requires .NET 10 Desktop Runtime x64. Sources are under `source/`, using C#, WebView2 and Win32 APIs; Windows Forms hosts the window and tray icon. WebView2 Evergreen Runtime is required.
 

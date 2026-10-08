@@ -62,7 +62,7 @@ jobs:
           if ($files.Count -ne 1 -or $files[0].Name -ne 'TrayPilot.exe') {
             throw 'The published package must contain only TrayPilot.exe.'
           }
-          # Exercise embedded resources and helper loading without an Explorer session.
+          # Verify bundled web pages, languages and helper loading without WebView2 or an Explorer session.
           $report = Join-Path $env:RUNNER_TEMP "package-$env:PACKAGE.txt"
           $process = Start-Process -FilePath (Join-Path $publishDir 'TrayPilot.exe') -ArgumentList @('--package-test', "`"$report`"") -WindowStyle Hidden -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Package test timed out.' }

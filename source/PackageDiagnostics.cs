@@ -14,6 +14,13 @@ internal static partial class Diagnostics
             var packs = L.Packs();
             Check(packs.ContainsKey("en-US") && packs.ContainsKey("zh-CN"), "English and Chinese are available from the package.");
             L.Set("zh-CN"); Check(L.T("about") == "关于", "Embedded Chinese translations load.");
+            foreach (string page in new[] { "index.html", "tray.html" })
+            {
+                string html = System.Text.Encoding.UTF8.GetString(MainForm.WebDocumentBytes(page));
+                Check(html.Contains("<style>") && html.Contains("<script>") &&
+                    !html.Contains("<link rel=\"stylesheet\" href=") && !html.Contains("<script src="),
+                    "Embedded web page bundles its styles and scripts: " + page + ".");
+            }
             string path = NativeHelper.Extract(root);
             var library = NativeLibrary.Load(path);
             try

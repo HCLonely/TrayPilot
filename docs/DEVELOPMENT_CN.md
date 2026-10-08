@@ -6,11 +6,21 @@
 
 ### 本地构建
 
-在 Windows 上安装 Visual Studio 2022 C++ x64 构建工具和 Windows SDK，以及 .NET 10 SDK 或支持 `net10.0-windows` 的更新 SDK，在仓库根目录执行：
+在 Windows 上安装 Git、Visual Studio 2022 C++ x64 构建工具和 Windows SDK，以及 .NET 10 SDK 或支持 `net10.0-windows` 的更新 SDK。双击 `scripts` 目录中的 `build.bat` 即可构建；窗口会保留构建结果，按任意键关闭。首次构建需要联网还原 NuGet 包。
+
+也可以在 PowerShell 中执行：
 
 ```powershell
-dotnet publish .\source\TrayPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\app
+.\scripts\build.ps1
+
+# 精简版（需要 .NET 10 Desktop Runtime x64）
+.\scripts\build.ps1 -Package lite -OutputDirectory output\lite
+
+# 自定义构建配置和输出目录
+.\scripts\build.ps1 -Configuration Debug -OutputDirectory output\debug
 ```
+
+默认使用 Release 配置构建 Windows x64 完整版，输出到 `app/TrayPilot.exe`，自动构建并嵌入 C++ 原生模块。相对输出路径以仓库根目录为基准；脚本失败时返回非零退出码。若 PowerShell 执行策略阻止运行，可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1`。
 
 发布输出为单个 `app/TrayPilot.exe`，包含内置语言包与原生模块。完整版包含 .NET（原生运行时组件在启动时自动释放）；精简版需要 .NET 10 Desktop Runtime x64。源码位于 `source/`，使用 C#、WebView2 与 Win32 API；Windows Forms 仅承担窗口和托盘宿主。所有页面资源内嵌，不访问网络，需要 WebView2 Evergreen Runtime。
 
