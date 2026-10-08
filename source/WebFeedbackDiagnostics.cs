@@ -47,7 +47,25 @@ internal static partial class Diagnostics
         await trayCore.ExecuteScriptAsync("window.trayBaseline=structuredClone(state);window.trayFirst=$('#trayApps .popup-app');window.trayImage=window.trayFirst?.querySelector('img');window.trayMutations=0;window.trayObserver=new MutationObserver(items=>window.trayMutations+=items.length);window.trayObserver.observe(document.body,{subtree:true,attributes:true,childList:true,characterData:true})");
         typeof(MainForm).GetMethod("PublishTrayState", DashboardFlags)!.Invoke(form,new object[]{true}); await Task.Delay(100);
         await TrayCheck("window.trayMutations===0&&$('#trayApps .popup-app')===window.trayFirst&&$('#trayApps .popup-app img')===window.trayImage", "An unchanged tray snapshot produces zero DOM updates and preserves program images.");
-        await trayCore.ExecuteScriptAsync("window.trayObserver.disconnect();state={...state,capacity:2};render();movePage(1)");
+        await trayCore.ExecuteScriptAsync("window.trayObserver.disconnect()");
+        foreach (string language in new[] { "zh-CN", "en-US" })
+        {
+            foreach (string phase in new[] { "done", "failed", "undone" })
+            {
+                await trayCore.ExecuteScriptAsync($$$"""
+                    state={...state,language:'{{{language}}}',busy:true,operation:{serial:1001,phase:'working',total:1,completed:0,failed:[],canRetry:false,canUndo:false}};render();
+                    """);
+                await TrayCheck("!$('#trayFeedback').hidden&&/正在处理 1|Updating 1/.test($('#trayFeedbackText').textContent)&&$('#trayApps').getAttribute('aria-busy')==='true'", "Tray displays progress before " + phase + " in " + language + ".");
+                await trayCore.ExecuteScriptAsync($$$"""
+                    state={...state,busy:false,operation:{...state.operation,phase:'{{{phase}}}',completed:{{{(phase == "failed" ? 0 : 1)}}},failed:{{{(phase == "failed" ? "[{id:'test',name:'test',error:'test failure'}]" : "[]")}}},canRetry:{{{(phase == "failed" ? "true" : "false")}}},canUndo:{{{(phase == "done" ? "true" : "false")}}}}};render();window.trayFeedbackTimer=feedbackTimer;
+                    """);
+                string expected = phase == "failed" ? "/1 项未完成|1 failed/" : phase == "undone" ? "/已撤销上次操作|Last action undone/" : "/已完成 1 项|1 actions completed/";
+                await TrayCheck("!$('#trayFeedback').hidden&&" + expected + ".test($('#trayFeedbackText').textContent)&&$('#trayApps').getAttribute('aria-busy')==='false'", "Tray replaces progress with " + phase + " for the same operation serial in " + language + ".");
+                await trayCore.ExecuteScriptAsync("render()");
+                await TrayCheck("feedbackTimer===window.trayFeedbackTimer", "Unchanged " + phase + " feedback does not restart its dismissal timer in " + language + ".");
+            }
+        }
+        await trayCore.ExecuteScriptAsync("state={...window.trayBaseline,capacity:2};render();movePage(1)");
         await TrayCheck("page===1&&$('#trayApps').children.length<=2", "Tray pagination uses host capacity rather than the six-row prototype limit.");
         await trayCore.ExecuteScriptAsync("document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))");
         await TrayCheck("page===0", "Keyboard arrows change tray pages.");
@@ -147,7 +165,19 @@ internal static partial class Diagnostics
                 if(!panel.Visible||form.Visible)throw new IOException("Native right-click did not open the web tray panel alone");checks.Add("The first native tray right-click opens the WebView panel while the main window remains hidden.");
                 await RunWebRulesScript(trayCore,"openGroup(state.entries[0].path)");if(await trayCore.ExecuteScriptAsync("$('#trayGroupEntries').children.length===2")!="true")throw new IOException("Tray group missing owner icons");checks.Add("The actual UID and GUID test icons appear as separate controls in one program group.");
                 await RunWebRulesScript(trayCore,"$('#trayGroupDialog').close();await send('change',{ids:[state.entries[0].id],hidden:true})");if(own.Count(e=>Native.State(e)==1)!=1)throw new IOException("Tray single control changed group");checks.Add("Tray single-icon commands hide only their selected actual icon.");
+                async Task CheckTrayResult(string phase, string label)
+                {
+                    if (await trayCore.ExecuteScriptAsync("state.operation.phase==='" + phase + "'&&!$('#trayFeedback').hidden&&!/正在处理|Updating/.test($('#trayFeedbackText').textContent)") != "true")
+                        throw new IOException(label);
+                    checks.Add(label);
+                }
+                await CheckTrayResult("done", "Actual tray hiding replaces the progress message with completion feedback.");
+                await RunWebRulesScript(trayCore,"await send('change',{ids:[state.entries.find(e=>e.hidden).id],hidden:false})");
+                if(own.Any(e=>Native.State(e)!=0))throw new IOException("Tray single restore failed");
+                await CheckTrayResult("done", "Actual tray showing replaces the progress message with completion feedback.");
+                await RunWebRulesScript(trayCore,"await send('change',{ids:[state.entries[0].id],hidden:true})");
                 await RunWebRulesScript(trayCore,"await send('visibilityUndo')");if(own.Any(e=>Native.State(e)!=0))throw new IOException("Tray Undo failed");checks.Add("Tray Undo shares the actual visibility history with the main window.");
+                await CheckTrayResult("undone", "Actual tray Undo replaces the progress message with undo feedback.");
                 var monitor=Screen.FromControl(panel).WorkingArea;if(!monitor.Contains(panel.Bounds)||await trayCore.ExecuteScriptAsync("state.capacity>=1&&state.capacity<=10")!="true")throw new IOException("Tray geometry is outside monitor");checks.Add("Tray placement is constrained to the selected monitor and capacity is bounded by ten groups.");
                 await RunWebRulesScript(trayCore,"await send('terminate',{id:state.entries[0].id,token:'invalid'}).then(()=>{throw Error('Unknown tray command accepted')},()=>{})");checks.Add("The tray bridge rejects actions outside its command whitelist.");
                 string traySource=trayCore.Source;trayCore.Navigate("https://example.com/");await Task.Delay(150);if(trayCore.Source!=traySource)throw new IOException("Tray external navigation accepted");checks.Add("The independent tray WebView blocks external navigation.");
