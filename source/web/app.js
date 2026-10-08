@@ -12,6 +12,37 @@ let startupPresented=false;
 const rowNodes=new Map();
 const requests=new Map();
 const $=s=>document.querySelector(s);
+let itemMenuId=null,itemMenuFocus=null;
+const itemMenu=document.createElement('div');itemMenu.id='itemMenu';itemMenu.className='item-menu';itemMenu.hidden=true;itemMenu.setAttribute('role','menu');document.body.append(itemMenu);
+function closeItemMenu(restoreFocus=false){if(!itemMenu.hidden)itemMenu.hidden=true;itemMenuId=null;if(restoreFocus&&itemMenuFocus?.isConnected)itemMenuFocus.focus({preventScroll:true})}
+function openItemMenu(id,event){
+ event.preventDefault();closeItemMenu();
+ const a=apps.find(a=>a.id===id);if(!a||pending||state.busy||state.page!=='icons'||document.querySelector('dialog[open]'))return;
+ choose(id,{ctrlKey:false,shiftKey:false});itemMenuId=id;itemMenuFocus=rowNodes.get(id);
+ const en=state.language==='en-US',label=(zh,enText)=>en?enText:zh;
+ const actions=[['properties',t('properties')],['toggle',t(a.hidden?'restoreCurrent':'hideCurrent')],['rule',t(a.rule?'viewRule':'createRule')],['terminate',label('结束任务…','End task…'),!a.canTerminate],['hideProgram',label('隐藏此程序全部图标','Hide all program icons')],['showProgram',label('恢复此程序全部图标','Show all program icons')],['programRule',label('创建此程序隐藏规则','Create program hide rule')]];
+ itemMenu.replaceChildren();itemMenu.setAttribute('aria-label',a.name);
+ for(const [action,title,disabled] of actions){const button=document.createElement('button');button.type='button';button.dataset.action=action;button.setAttribute('role','menuitem');button.textContent=title;button.disabled=!!disabled;button.onclick=()=>runItemMenuAction(action);itemMenu.append(button)}
+ itemMenu.hidden=false;const bounds=itemMenu.getBoundingClientRect(),row=itemMenuFocus.getBoundingClientRect();
+ const x=event.clientX||row.left,y=event.clientY||row.bottom;
+ itemMenu.style.left=Math.max(8,Math.min(x,innerWidth-bounds.width-8))+'px';itemMenu.style.top=Math.max(8,Math.min(y,innerHeight-bounds.height-8))+'px';itemMenu.querySelector('button:not(:disabled)').focus({preventScroll:true});
+}
+function runItemMenuAction(action){
+ const a=apps.find(a=>a.id===itemMenuId);closeItemMenu(true);if(!a||pending||state.busy)return;
+ if(action==='properties')showWebProperties(a.id);
+ else if(action==='toggle')change(a.id);
+ else if(action==='terminate'&&a.canTerminate)openTerminate(a.id);
+ else if(action==='rule'&&a.rule)command('rule',{id:a.id});
+ else if(action==='rule'||action==='programRule'){openRuleEditor(null,a.id);if(action==='programRule'){document.querySelector('input[name=ruleScope][value=program]').checked=true;updateRulePreview()}}
+ else if(action==='hideProgram'||action==='showProgram')command('change',{ids:apps.filter(other=>other.path.toLocaleLowerCase()===a.path.toLocaleLowerCase()).map(other=>other.id),hidden:action==='hideProgram'});
+}
+itemMenu.addEventListener('keydown',event=>{
+ const buttons=[...itemMenu.querySelectorAll('button:not(:disabled)')],index=buttons.indexOf(document.activeElement);
+ if(event.key==='Escape'||event.key==='Tab'){closeItemMenu(event.key==='Escape');if(event.key==='Escape')event.preventDefault();return}
+ if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus()}
+});
+document.addEventListener('pointerdown',event=>{if(!itemMenu.contains(event.target))closeItemMenu()});
+document.addEventListener('scroll',()=>closeItemMenu(),true);window.addEventListener('resize',()=>closeItemMenu());window.addEventListener('blur',()=>closeItemMenu());
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const words={
  title:['图标管理','Icon management'],subtitle:['留下需要的图标，其余安静运行。','Keep what you need. Let the rest run quietly.'],
@@ -80,6 +111,7 @@ function choose(id,event){
 }
 function updateBusy(){
  const working=state.busy||pending>0;
+ if(working||state.page!=='icons'||!rowNodes.get(itemMenuId)?.isConnected)closeItemMenu();
  setText($('#busyNote'),t('busy'));$('#busyNote').classList.toggle('show',pending>0&&['change','restore'].includes(pendingAction));
  setAttr($('.listpanel'),'aria-busy',String(working));
  $('#iconsPage').querySelectorAll('.top-actions button:not(#visibilityUndoButton),.entry .rowaction,.detailactions button,.rulebox button,.pathbox button,.tablefoot button').forEach(b=>setProperty(b,'disabled',working));
@@ -107,7 +139,8 @@ function createRow(a){
  const id=a.id;
  row.onclick=e=>{if(!e.target.closest('button,input'))choose(id,e)};
  row.ondblclick=e=>{if(!e.target.closest('button,input'))change(id)};
- row.onkeydown=e=>{if(e.target!==row)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();if(e.key===' ')selected.has(id)?selected.delete(id):selected.add(id);choose(id,{ctrlKey:false,shiftKey:false})}};
+ row.oncontextmenu=e=>openItemMenu(id,e);
+ row.onkeydown=e=>{if(e.target!==row)return;if(e.key==='ContextMenu'||e.shiftKey&&e.key==='F10'){openItemMenu(id,e);return}if(e.key==='Enter'||e.key===' '){e.preventDefault();if(e.key===' ')selected.has(id)?selected.delete(id):selected.add(id);choose(id,{ctrlKey:false,shiftKey:false})}};
  row.querySelector('input').onchange=e=>{e.target.checked?selected.add(id):selected.delete(id);current=id;render()};
  row.querySelector('button').onclick=()=>change(id);
  return row;

@@ -11,7 +11,26 @@ internal static partial class Diagnostics
         var checks = new List<string>();
         async Task Check(string js, string label) { if (await core.ExecuteScriptAsync(js) != "true") throw new IOException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({dialogs:[...document.querySelectorAll('dialog[open]')].map(d=>d.id),focus:document.activeElement.id,error:$('#feedbackTerminateError').textContent})")); checks.Add(label); }
         async Task Act(string js) => await RunWebRulesScript(core, js);
-        await Act("await send('navigate',{page:'icons'});await showWebProperties(apps.find(a=>a.canTerminate)?.id||apps[0].id)");
+        await Act("await send('navigate',{page:'icons'})");
+        foreach (bool grid in new[] { false, true })
+        {
+            await Act("setView(" + (grid ? "true" : "false") + ");window.menuTarget=apps.find(a=>a.canTerminate)?.id||apps[0].id;rowNodes.get(window.menuTarget).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:innerWidth-2,clientY:innerHeight-2}))");
+            await Check("!itemMenu.hidden&&itemMenuId===window.menuTarget&&current===window.menuTarget&&itemMenu.contains(document.activeElement)&&itemMenu.getBoundingClientRect().right<=innerWidth&&itemMenu.getBoundingClientRect().bottom<=innerHeight", "Right-click opens the target icon menu within the viewport in " + (grid ? "grid" : "list") + " view.");
+            await Act("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}))");
+            await Check("document.activeElement.dataset.action==='programRule'", "Keyboard navigation reaches the program-wide rule action.");
+            await Act("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
+            await Check("itemMenu.hidden&&document.activeElement===rowNodes.get(window.menuTarget)", "Escape closes the menu and restores the invoking row focus.");
+        }
+        await Act("setView(false);rowNodes.get(window.menuTarget).dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true,cancelable:true}))");
+        await Check("!itemMenu.hidden&&itemMenuId===window.menuTarget", "Shift+F10 opens the icon management menu.");
+        await Act("document.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true}))");
+        await Check("itemMenu.hidden", "Clicking outside dismisses the icon menu.");
+        await Act("state={...state,busy:true};rowNodes.get(window.menuTarget).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));state={...state,busy:false}");
+        await Check("itemMenu.hidden", "Busy icon operations prevent another context menu action.");
+        await Act("rowNodes.get(window.menuTarget).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:240}));$('#itemMenu [data-action=programRule]').click()");
+        await Check("$('#ruleEditor').open&&ruleDraft().targetId===window.menuTarget&&ruleDraft().scope==='program'", "Program rule context action opens the editor with the clicked application and program scope.");
+        await Act("closeRuleDialog('ruleEditor')");
+        await Act("rowNodes.get(window.menuTarget).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:240}));$('#itemMenu [data-action=properties]').click();for(let i=0;i<100&&!$('#feedbackPropertiesDialog').open;i++)await new Promise(r=>setTimeout(r,50))");
         await Check("$('#feedbackPropertiesDialog').open&&$('#feedbackPropertiesRows').textContent.includes(apps.find(a=>a.canTerminate)?.path||apps[0].path)&&document.activeElement.id==='feedbackPropertiesClose'", "HTML properties contain the actual program path and a reachable close action.");
         await Act("closeFeedbackDialog('feedbackPropertiesDialog');await openTerminate(apps.find(a=>a.canTerminate).id)");
         await Check("$('#feedbackTerminateDialog').open&&document.activeElement.id==='feedbackTerminateCancel'&&$('#feedbackTerminateProgram').textContent.includes(String(feedbackTerminate.pid))", "End-task confirmation uses actual program identity and defaults to Cancel.");
@@ -90,6 +109,8 @@ internal static partial class Diagnostics
         string suffix = dark ? "dark" : "light";
         async Task Shot(CoreWebView2 target, string name) { await Task.Delay(180); using var stream = File.Create(Path.Combine(Path.GetDirectoryName(output)!, "web-05-" + name + "-" + suffix + ".png")); await target.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream); }
         async Task Act(string js) => await RunWebRulesScript(core, js);
+        await Act("rowNodes.get(current).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:500,clientY:300}))");await Shot(core,"item-menu");
+        await Act("closeItemMenu()");
         await Act("window.feedbackCaptureBaseline=structuredClone(state);openWebWelcome()"); await Shot(core,"welcome");
         await Act("closeFeedbackDialog('feedbackWelcomeDialog');receive({...state,entries:[]})"); await Shot(core,"empty");
         await Act("receive(window.feedbackCaptureBaseline);$('#search').value='未找到的程序';render()"); await Shot(core,"search");
@@ -123,7 +144,7 @@ internal static partial class Diagnostics
                 async Task Act(string js)=>await RunWebRulesScript(core,js);
                 async Task Check(string js,string label){if(await core.ExecuteScriptAsync(js)!="true")throw new IOException(label+" · "+await core.ExecuteScriptAsync("JSON.stringify(state.operation)"));checks.Add(label);}
                 string ids=JsonSerializer.Serialize(own.Select(e=>e.Key));
-                await Act("await send('change',{ids:"+ids+",hidden:true})");
+                await Act("rowNodes.get(apps[0].id).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:240}));$('#itemMenu [data-action=hideProgram]').click();for(let i=0;i<100&&pending;i++)await new Promise(r=>setTimeout(r,50))");
                 await Check("apps.every(a=>a.hidden)&&state.operation.completed===2&&state.operation.canUndo", "Web batch hiding verifies actual test-owned UID/GUID states and exposes Undo.");
                 if(own.Any(e=>Native.State(e)!=1)||owner.HasExited)throw new IOException("Actual hide did not keep the owner running");checks.Add("Actual icon hiding keeps the test-owned process running.");
                 await Act("await send('visibilityUndo')");await Check("apps.every(a=>!a.hidden)&&!state.operation.canUndo&&state.operation.phase==='undone'", "Undo restores the actual visibility and clears the consumed undo record.");
