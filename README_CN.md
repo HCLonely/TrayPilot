@@ -4,6 +4,8 @@
 
 简体中文 | [English](README.md)
 
+![示例图片](./Example.gif?raw=true)
+
 ## 下载与开始使用
 
 适用于 **Windows 11 x64**，目前主要在 Windows 11 25H2 上测试。

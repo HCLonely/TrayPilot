@@ -4,6 +4,8 @@ Keep your Windows tray tidy: hide unwanted icons while their applications keep r
 
 [简体中文](README_CN.md) | English
 
+![Example](./Example.gif?raw=true)
+
 ## Download and get started
 
 For **Windows 11 x64**, primarily tested on Windows 11 25H2.
