@@ -191,6 +191,7 @@ internal sealed partial class MainForm
             type = "state", page = webPage, language = L.Current, theme = UiTheme.Dark ? "dark" : "light", busy = busy && webForegroundOperation,
             paused = controller.Saved.RulesPaused, autoRefresh = autoRefreshEnabled,
             rules = controller.Saved.HiddenPaths.Count + controller.Saved.HiddenIcons.Count,
+            programHotkeys = controller.Saved.ProgramHotkeys,
             ruleCatalog = ruleRecords, ruleUndo = CanUndoWebRules(), system = WebSystemState(), settings = WebSettingsState(), about = WebAboutState(),
             operation = WebVisibilityState(), welcome = initialized && !controller.Saved.WelcomeDismissed && controller.Saved.HiddenPaths.Count == 0 && controller.Saved.HiddenIcons.Count == 0 && controller.Saved.Recovery.Count == 0,
             entries = webEntries.Select(e =>
@@ -273,6 +274,16 @@ internal sealed partial class MainForm
             {
                 var data = await ExecuteWebPreferenceCommand(action, root);
                 PublishWebState(force: true); Reply(requestId, true, data: data); return;
+            }
+            else if (action == "ruleCopyPath")
+                Clipboard.SetText(ResolveWebRule(root.GetProperty("id").GetString()).Path);
+            else if (action == "programHotkey")
+            {
+                if (WebReadOnlyPreview) throw new InvalidOperationException("Read-only preview.");
+                string path = root.GetProperty("path").GetString() ?? "";
+                if (!WebEntries().Any(e => Controller.SamePath(e.Path, path)) && !RuleEditing.Catalog(controller).Any(r => Controller.SamePath(r.Path, path))
+                    && !controller.Saved.ProgramHotkeys.Keys.Any(p => Controller.SamePath(p, path))) throw new IOException(L.T("processUnavailableMessage"));
+                SaveProgramHotkey(path, root.GetProperty("keys").GetInt32());
             }
             else if (action is "ruleValidate" or "ruleSave" or "ruleDelete" or "rulePause" or "ruleApply" or "ruleTemporary" or "ruleUndo")
             {

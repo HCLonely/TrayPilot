@@ -222,6 +222,7 @@ internal static partial class Diagnostics
                 await core.ExecuteScriptAsync("void(async()=>{window.staleRejected=false;try{await send('change',{ids:['stale-id'],hidden:true})}catch{window.staleRejected=true}})()");
                 await Task.Delay(250);
                 Check(await core.ExecuteScriptAsync("window.staleRejected") == "true", "Stale icon identities are rejected.");
+                await CheckProgramHotkeysLive(core, form, controller, own, Request, Check);
                 if (rulesTest) await CheckWebRulesLive(core, form, controller, own, Request, Check);
                 File.WriteAllText(report, JsonSerializer.Serialize(new { passed = true, checks, targets = "Only test-owned UID/GUID icons" }, new JsonSerializerOptions { WriteIndented = true }));
             }

@@ -16,6 +16,7 @@ internal sealed class SavedState
     public List<string> HiddenPaths { get; set; } = new();
     public List<IconRule> HiddenIcons { get; set; } = new();
     public List<TrayEntry> Recovery { get; set; } = new();
+    public Dictionary<string, int> ProgramHotkeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int HiddenSystemIcons { get; set; }
     public bool UseLegacySystemIconDiscovery { get; set; }
     public string Language { get; set; } = L.SystemLanguage;
@@ -56,11 +57,15 @@ internal sealed class Controller
         var state = JsonSerializer.Deserialize<SavedState>(File.ReadAllText(path))
             ?? throw new InvalidDataException(L.T("emptySettingsFileMessage"));
         if (state.Version != 1) throw new NotSupportedException($"Unsupported settings version: {state.Version}");
-        if (state.HiddenPaths == null || state.HiddenIcons == null || state.Recovery == null ||
+        if (state.ProgramHotkeys == null || state.ProgramHotkeys.Count > 512 ||
+            state.ProgramHotkeys.Keys.Select(NormalizePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != state.ProgramHotkeys.Count ||
+            state.ProgramHotkeys.Any(x => string.IsNullOrWhiteSpace(x.Key) || !GlobalHotkey.Valid((Keys)x.Value)) ||
+            state.HiddenPaths == null || state.HiddenIcons == null || state.Recovery == null ||
             state.HiddenPaths.Any(string.IsNullOrWhiteSpace) ||
             state.HiddenIcons.Any(x => x == null || string.IsNullOrWhiteSpace(x.Path) || x.WindowClass == null) ||
             state.Recovery.Any(x => x == null || string.IsNullOrWhiteSpace(x.Path) || x.Name == null || x.Tooltip == null))
             throw new InvalidDataException(L.T("invalidSettingsMessage"));
+        state.ProgramHotkeys = state.ProgramHotkeys.ToDictionary(x => NormalizePath(x.Key), x => x.Value, StringComparer.OrdinalIgnoreCase);
         state.Language = string.IsNullOrWhiteSpace(state.Language) ? L.SystemLanguage : state.Language;
         state.Theme = state.Theme is "light" or "dark" ? state.Theme : "system";
         state.HiddenSystemIcons &= SystemIconCatalog.All;

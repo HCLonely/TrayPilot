@@ -25,7 +25,7 @@ internal static class SettingsTransaction
     internal static void Save(Controller controller, SettingsPreferences draft, bool changeStartup, StartupRegistration startup,
         Func<bool> registerShortcuts)
     {
-        if (draft.InvalidHotkeys.Length > 0) throw new IOException(L.T("invalidHotkeyMessage"));
+        if (draft.InvalidHotkeys.Length > 0 || draft.Hotkeys.Any(h => h.Enabled && controller.Saved.ProgramHotkeys.Values.Contains((int)h.Keys))) throw new IOException(L.T("invalidHotkeyMessage"));
         var before = SettingsPreferences.Read(controller.Saved, null);
         bool hotkeysChanged = !before.Hotkeys.SequenceEqual(draft.Hotkeys);
         StartupRegistration.Snapshot? previousStartup = null;

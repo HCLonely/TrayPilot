@@ -15,3 +15,6 @@ tests/
 .history/
 artifacts/
 output/
+
+# Codex implementation plans
+/docs/superpowers/

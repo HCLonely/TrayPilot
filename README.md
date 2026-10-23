@@ -29,6 +29,10 @@ Hidden icons disappear from both the taskbar and its overflow menu. **Their appl
 | Stop hiding an icon automatically | Open **Hide rules** and remove its rule |
 | Restore icons hidden by TrayPilot | Choose **Restore all** |
 
+Per-program show/hide shortcuts are unassigned by default. Set or clear one from icon details, the icon context menu, or the corresponding rule's context menu. A shortcut toggles all tray icons with the same executable path: hide all if any are visible, otherwise restore all. Restoring keeps hide rules and temporarily shows the program for this session. Bindings remain saved when the program is offline. Include Ctrl or Alt; occupied and duplicate shortcuts are rejected.
+
+Each hide-rule item supports a context menu (right-click or Shift+F10) for editing, temporarily showing matched icons, setting its program shortcut, copying its path, and deleting the rule.
+
 Both list and grid layouts support double-clicks and multiple selection. Faded items are hidden; rule labels indicate an automatic hide rule.
 
 The selected icon’s Details area offers **Program properties** and **End task**. Ending a task closes the application and may lose unsaved work. Use hiding when you only want its icon gone.

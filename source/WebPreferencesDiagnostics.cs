@@ -9,7 +9,12 @@ internal static partial class Diagnostics
     {
         var checks = new List<string>();
         async Task Check(string script, string label)
-        { if (await core.ExecuteScriptAsync(script) != "true") throw new IOException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({page:state.page,settings:state.settings,local:settingsDraft,version:settingsVersion,error:settingsOperationError,focus:document.activeElement.id})")); checks.Add(label); }
+        { for (int attempt = 0; attempt < 30; attempt++)
+            {
+                if (await core.ExecuteScriptAsync(script) == "true") break;
+                await Task.Delay(100);
+            }
+            if (await core.ExecuteScriptAsync(script) != "true") throw new IOException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({page:state.page,settings:state.settings,local:settingsDraft,version:settingsVersion,error:settingsOperationError,focus:document.activeElement.id})")); checks.Add(label); }
         async Task Act(string body) => await RunWebRulesScript(core, body);
         await Act("await send('navigate',{page:'settings'})");
         await Check("state.page==='settings'&&!$('#settingsPage').hidden&&$('#iconsPage').hidden&&!state.settings.startupLoading", "Settings opens inside the existing WebView with startup state ready.");
@@ -120,7 +125,12 @@ internal static partial class Diagnostics
                 await form.EnableWebInterfaceAsync(); await form.WebLoaded.Task.WaitAsync(TimeSpan.FromSeconds(25));
                 var core = form.Controls.OfType<Microsoft.Web.WebView2.WinForms.WebView2>().Single(v => v.Name == "mainWebView").CoreWebView2;
                 async Task Check(string script, string label)
-                { if (await core.ExecuteScriptAsync(script) != "true") throw new IOException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({page:state.page,settings:state.settings,local:settingsDraft,error:settingsOperationError,about:state.about})")); checks.Add(label); }
+                { for (int attempt = 0; attempt < 30; attempt++)
+            {
+                if (await core.ExecuteScriptAsync(script) == "true") break;
+                await Task.Delay(100);
+            }
+            if (await core.ExecuteScriptAsync(script) != "true") throw new IOException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({page:state.page,settings:state.settings,local:settingsDraft,error:settingsOperationError,about:state.about})")); checks.Add(label); }
                 async Task Act(string body) => await RunWebRulesScript(core, body);
                 await Act("await send('navigate',{page:'settings'});editPreference('restoreOnExit',true);editPreference('startup',true);await settingsSync;await saveSettings()");
                 await Check("!preferencesDirty()&&settingsBaseline.restoreOnExit&&settingsBaseline.startup", "The actual web form saves settings and refreshes its baseline.");

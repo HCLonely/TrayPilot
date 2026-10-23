@@ -68,10 +68,12 @@ internal sealed partial class MainForm
         showAllHotkey ??= new GlobalHotkey(Handle, 0x4A01);
         mainHotkey ??= new GlobalHotkey(Handle, 0x4A11);
         hideRulesHotkey ??= new GlobalHotkey(Handle, 0x4A21);
+        DisposeProgramHotkeys();
         showAllHotkey.Dispose(); mainHotkey.Dispose(); hideRulesHotkey.Dispose();
         hotkeyWarning = !showAllHotkey.TrySet(controller.Saved.ShowAllHotkeyEnabled, (Keys)controller.Saved.ShowAllHotkey);
         hotkeyWarning |= !mainHotkey.TrySet(controller.Saved.MainHotkeyEnabled, (Keys)controller.Saved.MainHotkey);
         hotkeyWarning |= !hideRulesHotkey.TrySet(controller.Saved.HideRulesHotkeyEnabled, (Keys)controller.Saved.HideRulesHotkey);
+        RegisterProgramHotkeys();
     }
 
     protected override void WndProc(ref Message message)
@@ -80,11 +82,13 @@ internal sealed partial class MainForm
         if (message.Msg == 0x0312 && showAllHotkey?.Matches(message.WParam) == true) { _ = ApplyVisibilityPresetAsync(false); return; }
         if (message.Msg == 0x0312 && mainHotkey?.Matches(message.WParam) == true) { OpenMainWindow(); return; }
         if (message.Msg == 0x0312 && hideRulesHotkey?.Matches(message.WParam) == true) { _ = ApplyVisibilityPresetAsync(true); return; }
+        if (message.Msg == 0x0312 && HandleProgramHotkey(message.WParam)) return;
         base.WndProc(ref message);
     }
     protected override void OnHandleDestroyed(EventArgs e)
     {
         showAllHotkey?.Dispose(); showAllHotkey = null; hideRulesHotkey?.Dispose(); hideRulesHotkey = null; mainHotkey?.Dispose(); mainHotkey = null;
+        DisposeProgramHotkeys();
         base.OnHandleDestroyed(e);
     }
     protected override void OnHandleCreated(EventArgs e)

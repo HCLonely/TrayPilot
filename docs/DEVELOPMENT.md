@@ -70,6 +70,8 @@ Keys are short, stable semantic English identifiers in `camelCase` (for example,
 
 ## Configuration and recovery
 
+Per-program bindings use `ProgramHotkeys`, a normalized executable-path to Windows Forms Keys integer map; missing fields in older settings default to an empty map. `ProgramHotkeys.cs` owns Win32 registration, save rollback and serialized visibility toggles. Global settings also reject conflicting program bindings. Handle destruction and disposal release registrations. `programhotkeys.js` reuses the shortcut editor and provides rule context menus. `--web-rules-live-test` covers persistence, occupied-key rollback, native program toggles, rule exceptions, menu positioning, keyboard access and clearing.
+
 Settings, hide rules and recovery records are stored in:
 
 ```text

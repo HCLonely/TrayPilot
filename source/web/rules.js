@@ -74,8 +74,9 @@ function createRuleRow(rule){
  row.innerHTML='<input type="checkbox"><div class="appname"><span class="appicon"></span><div><strong></strong><small></small></div></div><span class="scope-pill"></span><span class="rule-state"></span><button class="rowaction"></button>';
  const id=rule.id;
  row.onclick=e=>{if(!e.target.closest('button,input'))chooseRule(id,e)};
+ row.oncontextmenu=e=>openRuleMenu(id,e);
  row.ondblclick=e=>{if(!e.target.closest('button,input'))openRuleEditor(id)};
- row.onkeydown=e=>{if(e.target!==row)return;if(e.key==='Enter'){e.preventDefault();openRuleEditor(id)}else if(e.key===' '){e.preventDefault();const checkbox=row.querySelector('input');checkbox.checked=!checkbox.checked;checkbox.dispatchEvent(new Event('change'))}};
+ row.onkeydown=e=>{if(e.target!==row)return;if(e.key==='ContextMenu'||e.shiftKey&&e.key==='F10'){openRuleMenu(id,e);return}if(e.key==='Enter'){e.preventDefault();openRuleEditor(id)}else if(e.key===' '){e.preventDefault();const checkbox=row.querySelector('input');checkbox.checked=!checkbox.checked;checkbox.dispatchEvent(new Event('change'))}};
  row.querySelector('input').onchange=e=>{e.target.checked?ruleSelected.add(id):ruleSelected.delete(id);ruleCurrent=id;renderRules()};
  row.querySelector('button').onclick=()=>openRuleEditor(id);return row;
 }
@@ -147,6 +148,7 @@ function renderRules(background=false){
  if($('#ruleEditor').open)updateRulePreview(false);
 }
 function updateRulesBusy(){
+ if(typeof syncRuleMenu==='function')syncRuleMenu();
  const working=state.busy||pending>0,rule=ruleCatalog().find(r=>r.id===ruleCurrent);
  setAttr($('#ruleListPanel'),'aria-busy',String(working));setText($('#ruleBusyNote'),rt('working'));$('#ruleBusyNote').classList.toggle('show',working&&pendingAction.startsWith('rule')&&pendingAction!=='ruleValidate');
  document.querySelectorAll('[data-rule-command],.rule-entry .rowaction').forEach(node=>setProperty(node,'disabled',working||(node.id==='ruleTemporary'&&!rule?.liveCount)||(['ruleEdit','ruleDelete'].includes(node.id)&&!rule)));

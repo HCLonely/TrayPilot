@@ -174,6 +174,7 @@ internal sealed partial class MainForm : Form
             if (closing) systemIconSession?.Stop(controller.Saved.RestoreIconsOnExit); else systemIconSession?.Dispose();
             systemIconSession = null; systemIconWatch.Dispose(); timer.Dispose();
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnSystemThemeChanged;
+            DisposeProgramHotkeys();
             showAllHotkey?.Dispose(); hideRulesHotkey?.Dispose(); mainHotkey?.Dispose();
             if (trayIcon != null) { trayIcon.Visible = false; var icon = trayIcon.Icon; trayIcon.Dispose(); icon?.Dispose(); }
         }

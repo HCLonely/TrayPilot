@@ -48,7 +48,12 @@ internal static partial class Diagnostics
     {
         var checks = new List<string>();
         async Task Check(string script, string label)
-        { if (await core.ExecuteScriptAsync(script) != "true") throw new InvalidOperationException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({page:state.page,draft:ruleDraft(),valid:ruleEditorValid,error:$('#ruleError').textContent,focus:document.activeElement.id})")); checks.Add(label); }
+        { for (int attempt = 0; attempt < 30; attempt++)
+            {
+                if (await core.ExecuteScriptAsync(script) == "true") break;
+                await Task.Delay(100);
+            }
+            if (await core.ExecuteScriptAsync(script) != "true") throw new InvalidOperationException(label + " · " + await core.ExecuteScriptAsync("JSON.stringify({page:state.page,draft:ruleDraft(),valid:ruleEditorValid,error:$('#ruleError').textContent,focus:document.activeElement.id})")); checks.Add(label); }
         async Task Act(string script) { await core.ExecuteScriptAsync(script); await Task.Delay(220); }
         await RunWebRulesScript(core, "await send('navigate',{page:'rules'})");
         await Check("!$('#rulesPage').hidden && $('#iconsPage').hidden", "Rule navigation keeps one WebView and changes the active page.");

@@ -20,16 +20,17 @@ function openItemMenu(id,event){
  const a=apps.find(a=>a.id===id);if(!a||pending||state.busy||state.page!=='icons'||document.querySelector('dialog[open]'))return;
  choose(id,{ctrlKey:false,shiftKey:false});itemMenuId=id;itemMenuFocus=rowNodes.get(id);
  const en=state.language==='en-US',label=(zh,enText)=>en?enText:zh;
- const actions=[['properties',t('properties')],['toggle',t(a.hidden?'restoreCurrent':'hideCurrent')],['rule',t(a.rule?'viewRule':'createRule')],['terminate',label('结束任务…','End task…'),!a.canTerminate],['hideProgram',label('隐藏此程序全部图标','Hide all program icons')],['showProgram',label('恢复此程序全部图标','Show all program icons')],['programRule',label('创建此程序隐藏规则','Create program hide rule')]];
+ const actions=[['programHotkey',programHotkeyLabel(a.path)],['properties',t('properties')],['toggle',t(a.hidden?'restoreCurrent':'hideCurrent')],['rule',t(a.rule?'viewRule':'createRule')],['terminate',label('结束任务…','End task…'),!a.canTerminate],['hideProgram',label('隐藏此程序全部图标','Hide all program icons')],['showProgram',label('恢复此程序全部图标','Show all program icons')],['programRule',label('创建此程序隐藏规则','Create program hide rule')]];
  itemMenu.replaceChildren();itemMenu.setAttribute('aria-label',a.name);
- for(const [action,title,disabled] of actions){const button=document.createElement('button');button.type='button';button.dataset.action=action;button.setAttribute('role','menuitem');button.textContent=title;button.disabled=!!disabled;button.onclick=()=>runItemMenuAction(action);itemMenu.append(button)}
+ for(const [action,title,disabled] of actions){const button=document.createElement('button');button.type='button';button.dataset.action=action;button.setAttribute('role','menuitem');button.textContent=title;if(action==='programHotkey')setHtml(button,programHotkeyMenuHtml(a.path));button.disabled=!!disabled;button.onclick=()=>runItemMenuAction(action);itemMenu.append(button)}
  itemMenu.hidden=false;const bounds=itemMenu.getBoundingClientRect(),row=itemMenuFocus.getBoundingClientRect();
  const x=event.clientX||row.left,y=event.clientY||row.bottom;
  itemMenu.style.left=Math.max(8,Math.min(x,innerWidth-bounds.width-8))+'px';itemMenu.style.top=Math.max(8,Math.min(y,innerHeight-bounds.height-8))+'px';itemMenu.querySelector('button:not(:disabled)').focus({preventScroll:true});
 }
 function runItemMenuAction(action){
  const a=apps.find(a=>a.id===itemMenuId);closeItemMenu(true);if(!a||pending||state.busy)return;
- if(action==='properties')showWebProperties(a.id);
+ if(action==='programHotkey')openProgramHotkey(a.path,a.name);
+ else if(action==='properties')showWebProperties(a.id);
  else if(action==='toggle')change(a.id);
  else if(action==='terminate'&&a.canTerminate)openTerminate(a.id);
  else if(action==='rule'&&a.rule)command('rule',{id:a.id});
@@ -114,7 +115,7 @@ function updateBusy(){
  if(working||state.page!=='icons'||!rowNodes.get(itemMenuId)?.isConnected)closeItemMenu();
  setText($('#busyNote'),t('busy'));$('#busyNote').classList.toggle('show',pending>0&&['change','restore'].includes(pendingAction));
  setAttr($('.listpanel'),'aria-busy',String(working));
- $('#iconsPage').querySelectorAll('.top-actions button:not(#visibilityUndoButton),.entry .rowaction,.detailactions button,.rulebox button,.pathbox button,.tablefoot button').forEach(b=>setProperty(b,'disabled',working));
+ $('#iconsPage').querySelectorAll('.top-actions button:not(#visibilityUndoButton),.entry .rowaction,.detailactions button,.rulebox button,.program-hotkey,.pathbox button,.tablefoot button').forEach(b=>setProperty(b,'disabled',working));
  setProperty($('#autoRefresh'),'disabled',working);
  if(typeof updateRulesBusy==='function')updateRulesBusy();
  if(typeof updateSystemBusy==='function')updateSystemBusy();
@@ -146,7 +147,7 @@ function createRow(a){
  return row;
 }
 function patchRow(row,a){
- const signature=JSON.stringify([a,state.language]);
+ const signature=JSON.stringify([a,state.language,state.programHotkeys]);
  if(row._signature!==signature){
   row._signature=signature;
   setAttr(row,'aria-label',a.name+' · '+t(a.hidden?'hidden':'visible'));
@@ -188,13 +189,13 @@ function patchEntries(result,background){
  if(active?.isConnected&&document.activeElement!==active)active.focus({preventScroll:true});
 }
 function patchDetails(){
- const a=apps.find(a=>a.id===current),identity=(a?.id??'')+'|'+state.language,signature=JSON.stringify([a,state.language]);
+ const a=apps.find(a=>a.id===current),identity=(a?.id??'')+'|'+state.language,signature=JSON.stringify([a,state.language,state.programHotkeys]);
  if(signature===detailSignature)return;
  detailSignature=signature;
  const detail=$('#detail'),scroll=detail.scrollTop;
  if(identity!==detailIdentity){
   detailIdentity=identity;
-  detail.innerHTML=a?`<div class="detailhero"><span class="appicon"></span><div><h3></h3><p>${t('software')}</p></div></div><span class="pill"></span><dl><dt>${t('process')}</dt><dd class="process-value"></dd><dt>${t('path')}</dt><dd class="pathbox"><div class="path"></div><button onclick="copyPath()">${t('copy')}</button></dd></dl><div class="rulebox"><strong></strong><p></p><button onclick="openRule()"></button></div>`:`<p>${t('selectHint')}</p>`;
+  detail.innerHTML=a?`<div class="detailhero"><span class="appicon"></span><div><h3></h3><p>${t('software')}</p></div></div><span class="pill"></span><button class="program-hotkey" onclick="openProgramHotkey(apps.find(a=>a.id===current).path,apps.find(a=>a.id===current).name)"></button><dl><dt>${t('process')}</dt><dd class="process-value"></dd><dt>${t('path')}</dt><dd class="pathbox"><div class="path"></div><button onclick="copyPath()">${t('copy')}</button></dd></dl><div class="rulebox"><strong></strong><p></p><button onclick="openRule()"></button></div>`:`<p>${t('selectHint')}</p>`;
   $('#detailactions').innerHTML=a?'<button class="btn primary" onclick="changeCurrent()"></button><p></p><button class="btn secondary-action" onclick="openProperties()"></button><button class="rowaction feedback-end" onclick="openTerminate(current)"></button>':'';
  }
  if(a){
@@ -206,6 +207,7 @@ function patchDetails(){
   setText(detail.querySelector('.rulebox button'),t(a.rule?'viewRule':'createRule')+' →');
   setHtml($('#detailactions .primary'),icon(a.hidden?'eye':'hidden')+t(a.hidden?(a.rule?'temporary':'restoreCurrent'):'hideCurrent'));
   setText($('#detailactions p'),t(a.hidden&&a.rule?'ruleKeep':'noClose'));setText($('#detailactions .secondary-action'),t('properties'));
+  setHtml(detail.querySelector('.program-hotkey'),programHotkeyButtonHtml(a.path));setAttr(detail.querySelector('.program-hotkey'),'aria-label',programHotkeyLabel(a.path));
   const end=$('#detailactions .feedback-end');end.hidden=!a.canTerminate;setText(end,state.language==='en-US'?'End task…':'结束任务…');
  }
  if(detail.scrollTop!==scroll)detail.scrollTop=scroll;
