@@ -131,6 +131,8 @@ internal static partial class Diagnostics
                 snapshot = snapshot with { Images = new ExplorerIconImage?[12] };
                 snapshot.Images[0] = new(1, 1, new byte[] { 0, 0, 255, 255 }); Publish(); await Task.Delay(150);
                 await Check("systemItem(1).imageNative&&systemNodes.get(1).querySelector('.system-glyph').classList.contains('native-image')&&getComputedStyle(systemNodes.get(1).querySelector('img')).filter==='none'", "Explorer image is preferred and retains its original colors.");
+                await core.ExecuteScriptAsync("chooseSystem(1)");
+                await Check("[systemNodes.get(1).querySelector('.system-glyph'),document.querySelector('#systemDetail .system-glyph')].every(n=>{const s=getComputedStyle(n);return s.backgroundColor==='rgba(0, 0, 0, 0)'&&s.borderTopWidth==='0px'&&s.paddingTop==='0px'&&s.boxShadow==='none'})", "Native images have transparent backgrounds without a gray backing or border in both cards and details.");
                 snapshot.Images[0] = new(2, 1, new byte[1]); Publish(); await Task.Delay(150);
                 await Check("!systemItem(1).imageNative&&!systemNodes.get(1).querySelector('.system-glyph').classList.contains('native-image')&&systemNodes.get(1).querySelector('img').naturalWidth===64", "Invalid Explorer image automatically returns to the original built-in renderer.");
                 snapshot.Images[0] = new(1, 1, new byte[] { 0, 255, 0, 255 }); Publish(); await Task.Delay(150);

@@ -8,4 +8,4 @@
 @media(max-width:1180px){#systemPage .work{grid-template-columns:1fr}}@media(max-width:1000px){.system-switch-guide{display:none}}@media(max-width:900px){.system-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#systemPage .connection{flex-wrap:wrap}.system-connect-copy{min-width:200px}#systemPage .connection .btn{font-size:12px}}@media(max-width:720px){.system-grid{grid-template-columns:1fr;padding:12px}.system-toolbar{padding:10px 8px}.system-toolbar .filterrow button{padding:6px 7px;font-size:12px}.system-dialog .dialogbody{padding:18px}.system-panel .tablefoot{flex-wrap:wrap}.system-connect-icon{display:none}}
 @media(prefers-reduced-motion:reduce){#systemPage .connection.loading .system-connect-icon svg{animation:none}}
 
-.system-glyph.native-image{background:#808080;border-radius:4px;padding:2px}.system-glyph.native-image img{filter:none}
+.system-glyph.native-image,.system-hero .system-glyph.native-image{background:transparent;border:0;border-radius:0;padding:0}.system-glyph.native-image img{filter:none}
