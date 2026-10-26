@@ -35,6 +35,8 @@ Each hide-rule item supports a context menu (right-click or Shift+F10) for editi
 
 Both list and grid layouts support double-clicks and multiple selection. Faded items are hidden; rule labels indicate an automatic hide rule.
 
+Ordinary application icons prefer the actual image stored inside Explorer, updated with page refreshes and shared by the list and tray quick panel without screen capture. Initial preparation or a Windows update may require background symbol downloads; existing icons remain available meanwhile. Overflow, hidden or inaccessible images fall back to the Windows snapshot, executable icon and generic icon, in that order. Successful retries restore the live image. The primary taskbar's instantiated icon models are currently verified; live access to every overflow or hidden icon is not guaranteed.
+
 The selected icon’s Details area offers **Program properties** and **End task**. Ending a task closes the application and may lose unsaved work. Use hiding when you only want its icon gone.
 
 ## Automatic hiding and restoration
@@ -76,6 +78,8 @@ Start with Windows is off by default. Manage it through TrayPilot's Settings or 
 ## Volume, network, clock and other system icons
 
 Open **System icons** to manage the primary taskbar's volume, network, battery, clock, language bar, notification bell, Show desktop button and other controls. Double-click an item to toggle its visibility; choices are saved automatically.
+
+The page prefers images rendered from Explorer's internal controls, preserving their current appearance and colors without screen capture. Hidden or absent controls and image retrieval failures automatically fall back to the existing font rendering or built-in icons. Successful retries restore the Explorer image.
 
 Keep **Updated compatibility method (recommended)** selected for normal use. The first connection, or a connection after a Windows update, may need internet access and a short wait. If it fails, try again later or try the other detection method.
 

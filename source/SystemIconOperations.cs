@@ -8,7 +8,8 @@ internal sealed partial class MainForm
         return new(connected, systemIconsConnecting, systemIconsRequested, connected ? session!.Found : 0,
             connected ? session!.Hidden : 0, connected && session!.SharedMicrophoneLocation, controller.Saved.UseLegacySystemIconDiscovery,
             connected || session == null || session.IsDisposed ? "" : L.F("systemNativeFailed", $"0x{session.Error:X8}"),
-            connected ? session!.DebugInfo() : "", connected ? session!.ReadAppearances() : new (string, string)[12]);
+            connected ? session!.DebugInfo() : "", connected ? session!.ReadAppearances() : new (string, string)[12])
+        { Images = connected ? session!.ReadImages() : new ExplorerIconImage?[12] };
     }
 
     void UpdateSystemPageActivation()

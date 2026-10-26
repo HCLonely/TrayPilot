@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Taskbar host discovery adapted from m417z's Taskbar tray system icon tweaks.
 // See README.md and LICENSE for attribution and source details.
+#define NOMINMAX
 #include <windows.h>
 #include <dbghelp.h>
 #include <ocidl.h>
@@ -10,6 +11,9 @@
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
+#include <winrt/Windows.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <cmath>
 #include <atomic>
 #include <algorithm>
 #include <memory>
@@ -20,9 +24,19 @@
 using namespace winrt;
 using namespace Windows::UI::Xaml;
 using namespace Windows::UI::Xaml::Controls;
+std::mutex symbolsMutex;
+#include "NotifyImageProbe.h"
 constexpr GUID ClassId{0x56c9cbd1,0x7e71,0x4929,{0x93,0x15,0x0c,0xaa,0x4d,0x52,0xb7,0x61}};
 HMODULE module;
 struct IconAppearance { wchar_t text[16], font[64]; };
+constexpr int IconMaxWidth=192, IconMaxHeight=64;
+struct IconPixels {
+    volatile LONG sequence;
+    LONG width, height, error;
+    ULONGLONG timestamp;
+    BYTE pixels[IconMaxWidth*IconMaxHeight*4];
+};
+static_assert(sizeof(IconPixels)==49176);
 struct Shared {
     LONG version, owner;
     volatile LONG requested, stop, found, hidden, ticks, error, alive, contexts, requestId, responseId;
@@ -32,15 +46,21 @@ struct Shared {
     IconAppearance icons[12];
     volatile LONG appearanceRequested;
     volatile LONG restoreRequested;
+    IconPixels images[12];
 };
 static_assert(offsetof(Shared, appearanceRequested)==2016);
 static_assert(offsetof(Shared, restoreRequested)==2020);
+static_assert(offsetof(Shared, images)==2024);
+static_assert(sizeof(Shared)==592136);
+#include "ApplicationModelImages.h"
 struct Session {
     HANDLE mapping{}, owner{};
     Shared* data{};
+    std::unique_ptr<ApplicationImageState> application;
     ~Session() { if(data) UnmapViewOfFile(data); if(mapping) CloseHandle(mapping); if(owner) CloseHandle(owner); }
     bool stopped() { return data->stop || WaitForSingleObject(owner,0) != WAIT_TIMEOUT; }
 };
+#include "IconImages.h"
 struct Original {
     weak_ref<FrameworkElement> element;
     Windows::Foundation::IInspectable local{nullptr};
@@ -59,6 +79,15 @@ struct Context {
     bool sharedMicrophoneLocation{};
     HWND window{};
     IconAppearance icons[12]{};
+    std::shared_ptr<IconImageRequest> imageRequests[12];
+    void ReadImage(FrameworkElement const& element, int index) {
+        auto& request=imageRequests[index];
+        if(!request) request=std::make_shared<IconImageRequest>();
+        if(request->busy || GetTickCount64()-request->attempted<1000) return;
+        request->busy=true;
+        request->attempted=GetTickCount64();
+        RenderIconImage(session,request,element,index);
+    }
     bool ReadAppearance(DependencyObject const& node, LONG kind, IconAppearance& result, int depth=0) {
         if(depth>12 || kind==8 || kind==2048) return false;
         if(auto text=node.try_as<TextBlock>()) {
@@ -149,7 +178,10 @@ struct Context {
             found|=kind;
             IconAppearance appearance{};
             try { if(session->data->appearanceRequested) ReadAppearance(element,kind,appearance); } catch(...) { /* Appearance is optional. */ }
-            for(int i=0;i<12;i++) if(kind&(1<<i)) icons[i]=appearance;
+            for(int i=0;i<12;i++) if(kind&(1<<i)) {
+                icons[i]=appearance;
+                try { if(session->data->appearanceRequested) ReadImage(element,i); } catch(...) { /* Image fallback is independent of visibility. */ }
+            }
             if(kind==(16|32)) sharedMicrophoneLocation=true;
             // A combined privacy indicator must remain unless both are requested.
             Set(element,(mask&kind)==kind);
@@ -170,7 +202,7 @@ struct Context {
         try {
             auto data=session->data;
             if(session->stopped()) {
-                if(data->stop==2) preservedOriginals[window]=std::move(originals);
+                if(data->stop==2 && !session->application) preservedOriginals[window]=std::move(originals);
                 else Restore();
                 KillTimer(nullptr,timer); timer=0;
                 InterlockedDecrement(&data->contexts);
@@ -181,11 +213,19 @@ struct Context {
                     Restore(); frame=TaskbarRoot(window,data); root=make_weak(frame);
                 }
                 if(!frame) { data->found=0; data->hidden=0; throw hresult_error(E_NOTIMPL); }
+                if(session->application) {
+                    session->application->Read(frame);
+                    InterlockedIncrement(&data->ticks); data->alive=1;
+                    updating=false;
+                    return;
+                }
                 LONG request=data->requestId, mask=data->requested, restoreMask=data->restoreRequested, found=0, visible=0;
                 for(auto& original:originals) original.touched=false;
                 sharedMicrophoneLocation=false;
                 ZeroMemory(icons,sizeof(icons));
                 Walk(frame,mask,restoreMask,found,visible);
+                for(int i=0;i<12;i++) if(!(found&(1<<i)) && data->images[i].width)
+                    PublishIconImage(data->images[i],0,0,E_BOUNDS,nullptr);
                 // If an input method switches between text and image content,
                 // restore emptied/reclassified containers so XAML can repopulate them.
                 for(size_t i=0;i<originals.size();) {
@@ -261,7 +301,7 @@ LRESULT CALLBACK BootstrapHook(int code,WPARAM w,LPARAM l) {
                 for(auto& previous:contexts)
                     if(previous->window==request->window && previous->session->stopped()) previous->Tick();
                 std::erase_if(contexts,[](auto const& previous){return previous->timer==0;});
-                if(auto saved=preservedOriginals.find(request->window); saved!=preservedOriginals.end()) {
+                if(auto saved=preservedOriginals.find(request->window); !request->session->application && saved!=preservedOriginals.end()) {
                     context->originals=std::move(saved->second); preservedOriginals.erase(saved);
                 }
                 context->timer=SetTimer(nullptr,0,250,Tick);
@@ -295,10 +335,13 @@ struct Site : implements<Site,IObjectWithSite> {
             auto diagnostics=site.as<IXamlDiagnostics>();
             BSTR name{}; check_hresult(diagnostics->GetInitializationData(&name));
             auto session=std::make_shared<Session>();
-            session->mapping=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,name); SysFreeString(name);
+            session->mapping=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,name);
+            try { session->application=ApplicationImageState::Open(name); }
+            catch(...) { SysFreeString(name); throw; }
+            SysFreeString(name);
             if(!session->mapping) return HRESULT_FROM_WIN32(GetLastError());
             session->data=static_cast<Shared*>(MapViewOfFile(session->mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(Shared)));
-            if(!session->data || session->data->version!=1) return E_INVALIDARG;
+            if(!session->data || session->data->version!=2) return E_INVALIDARG;
             session->owner=OpenProcess(SYNCHRONIZE,FALSE,session->data->owner);
             if(!session->owner) return HRESULT_FROM_WIN32(GetLastError());
             auto raw=new std::shared_ptr<Session>(session);
@@ -333,7 +376,6 @@ extern "C" __declspec(dllexport) LONG __stdcall IdentifyGlyph(wchar_t glyph) noe
     try { return Context::Glyph(hstring(std::wstring(1,glyph))); } catch(...) { return 0; }
 }
 HRESULT ResolveSymbols(Shared* shared,PCWSTR symbolDirectory=nullptr) {
-    static std::mutex symbolsMutex;
     std::lock_guard lock(symbolsMutex); // DbgHelp is single-threaded.
     wchar_t system[MAX_PATH]; GetSystemDirectoryW(system,MAX_PATH);
     std::wstring path=std::wstring(system)+L"\\taskbar.dll";

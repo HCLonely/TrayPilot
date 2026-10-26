@@ -170,6 +170,7 @@ internal sealed partial class MainForm : Form
     {
         if (disposing)
         {
+            scanSession.Dispose();
             DisposeWebInterface();
             if (closing) systemIconSession?.Stop(controller.Saved.RestoreIconsOnExit); else systemIconSession?.Dispose();
             systemIconSession = null; systemIconWatch.Dispose(); timer.Dispose();

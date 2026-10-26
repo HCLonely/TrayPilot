@@ -26,11 +26,12 @@ internal static class TrayImages
 
     static Bitmap Load(TrayEntry entry, bool allowFileAccess)
     {
-        if (entry.IconSnapshot is { Length: > 0 })
+        foreach (var snapshot in new[] { entry.LiveIconSnapshot, entry.IconSnapshot })
         {
+            if (snapshot is not { Length: > 0 }) continue;
             try
             {
-                using var stream = new MemoryStream(entry.IconSnapshot);
+                using var stream = new MemoryStream(snapshot);
                 using var image = Image.FromStream(stream);
                 return new Bitmap(image);
             }

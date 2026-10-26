@@ -16,6 +16,8 @@ public sealed record TrayEntry
     public int State { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public byte[]? IconSnapshot { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public byte[]? LiveIconSnapshot { get; init; }
     public string Key => Guid != Guid.Empty ? Guid.ToString() : $"{Window}:{Id}:{Pid}:{Started}";
 }
 internal static class Scanner

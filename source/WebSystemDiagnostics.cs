@@ -128,6 +128,15 @@ internal static partial class Diagnostics
                 void Publish() => typeof(MainForm).GetMethod("PublishWebState", DashboardFlags)!.Invoke(form, new object[] { true });
                 await Request("await send('navigate',{page:'system'})");
                 DashboardField<System.Windows.Forms.Timer>(form, "webSystemPoll").Stop();
+                snapshot = snapshot with { Images = new ExplorerIconImage?[12] };
+                snapshot.Images[0] = new(1, 1, new byte[] { 0, 0, 255, 255 }); Publish(); await Task.Delay(150);
+                await Check("systemItem(1).imageNative&&systemNodes.get(1).querySelector('.system-glyph').classList.contains('native-image')&&getComputedStyle(systemNodes.get(1).querySelector('img')).filter==='none'", "Explorer image is preferred and retains its original colors.");
+                snapshot.Images[0] = new(2, 1, new byte[1]); Publish(); await Task.Delay(150);
+                await Check("!systemItem(1).imageNative&&!systemNodes.get(1).querySelector('.system-glyph').classList.contains('native-image')&&systemNodes.get(1).querySelector('img').naturalWidth===64", "Invalid Explorer image automatically returns to the original built-in renderer.");
+                snapshot.Images[0] = new(1, 1, new byte[] { 0, 255, 0, 255 }); Publish(); await Task.Delay(150);
+                await Check("systemItem(1).imageNative", "Explorer images resume after a successful retry.");
+                snapshot = snapshot with { Images = new ExplorerIconImage?[12] }; Publish(); await Task.Delay(150);
+                await Check("!systemItem(1).imageNative", "Missing Explorer images invalidate the native image cache and use fallback.");
                 await Request("await send('systemToggle',{bit:1,show:false})");
                 await Check("state.system.requested===1&&state.system.hidden===1&&systemNodes.get(1).querySelector('button').getAttribute('aria-checked')==='false'", "Hide request is acknowledged before the switch commits.");
                 if (new Controller(folder).Saved.HiddenSystemIcons != 1) throw new IOException("System mask not persisted."); checks.Add("System hide preference persists to real isolated settings.");

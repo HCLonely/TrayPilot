@@ -25,16 +25,19 @@ internal static class TaskbarSymbols
             if (entry.Type != DebugDirectoryEntryType.CodeView) continue;
             var data = pe.ReadCodeViewDebugDirectoryData(entry);
             string name = Path.GetFileName(data.Path);
-            if (!name.Equals("Taskbar.pdb", StringComparison.OrdinalIgnoreCase) || data.Age < 1)
+            string expected = Path.GetFileNameWithoutExtension(image) + ".pdb";
+            if ((!expected.Equals("Taskbar.pdb", StringComparison.OrdinalIgnoreCase) &&
+                !expected.Equals("SystemTray.pdb", StringComparison.OrdinalIgnoreCase)) ||
+                !name.Equals(expected, StringComparison.OrdinalIgnoreCase) || data.Age < 1)
                 throw new InvalidDataException("Unexpected taskbar symbol identity.");
             return new(name, data.Guid, data.Age);
         }
         throw new InvalidDataException("taskbar.dll has no CodeView symbol identity.");
     }
 
-    internal static async Task<string> PrepareAsync()
+    internal static async Task<string> PrepareAsync(string? image = null)
     {
-        var identity = ReadIdentity(Path.Combine(Environment.SystemDirectory, "taskbar.dll"));
+        var identity = ReadIdentity(image ?? Path.Combine(Environment.SystemDirectory, "taskbar.dll"));
         string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "TrayPilot", "symbols", identity.FileName, identity.Key);
         string file = Path.Combine(folder, identity.FileName);
@@ -47,7 +50,8 @@ internal static class TaskbarSymbols
             try
             {
                 var url = new Uri($"https://msdl.microsoft.com/download/symbols/{identity.FileName}/{identity.Key}/{identity.FileName}");
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(
+                    identity.FileName.Equals("SystemTray.pdb", StringComparison.OrdinalIgnoreCase) ? 120 : 45));
                 using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 if (response.Content.Headers.ContentLength > MaxSize) throw new InvalidDataException("Symbol file exceeds size limit.");

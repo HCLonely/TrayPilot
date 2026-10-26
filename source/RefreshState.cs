@@ -1,7 +1,8 @@
 namespace TrayPilot;
 
-internal sealed class ScanSession
+internal sealed class ScanSession : IDisposable
 {
+    readonly ApplicationIconSource images = new();
     List<TrayEntry> previous = new();
     long lastFull;
     internal List<TrayEntry> Scan(bool forceFull)
@@ -24,6 +25,7 @@ internal sealed class ScanSession
             if (current.Count != previous.Count) { previous = Scanner.Scan(); lastFull = now; }
             else previous = current;
         }
-        return previous;
+        return images.Apply(previous);
     }
+    public void Dispose() => images.Dispose();
 }

@@ -160,7 +160,9 @@ internal sealed partial class MainForm
 
     (string Image, bool DarkPlate, bool LightPlate) WebImage(TrayEntry entry)
     {
-        string signature = entry.Path + ":" + entry.Started + ":" + (entry.IconSnapshot is { Length: > 0 } bytes ? Convert.ToHexString(SHA256.HashData(bytes)) : "file");
+        var bytes = entry.LiveIconSnapshot is { Length: > 0 } live ? live : entry.IconSnapshot;
+        string signature = entry.Path + ":" + entry.Started + ":" + (entry.LiveIconSnapshot is { Length: > 0 } ? "live:" : "fallback:") +
+            (bytes is { Length: > 0 } ? Convert.ToHexString(SHA256.HashData(bytes)) : "file");
         if (webImages.TryGetValue(entry.Key, out var cached) && cached.Signature == signature) return (cached.Image, cached.DarkPlate, cached.LightPlate);
         using var bitmap = TrayImages.Create(entry with { State = 0 }, 64);
         int opaque = 0, white = 0, black = 0;

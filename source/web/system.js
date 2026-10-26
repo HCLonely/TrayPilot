@@ -35,7 +35,7 @@ function createSystemCard(item){
  card.onkeydown=e=>{if(e.target!==card)return;if(['Enter',' '].includes(e.key)){e.preventDefault();chooseSystem(item.bit)}else if(['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const cards=[...$('#systemEntries').children].filter(c=>!c.hidden);const index=cards.indexOf(card),columns=getComputedStyle($('#systemEntries')).gridTemplateColumns.split(' ').length;const next=e.key==='Home'?0:e.key==='End'?cards.length-1:index+({ArrowRight:1,ArrowLeft:-1,ArrowDown:columns,ArrowUp:-columns}[e.key]);const target=cards[Math.max(0,Math.min(cards.length-1,next))];chooseSystem(Number(target.dataset.bit));target.focus()}};
  card.querySelector('button').onclick=()=>toggleSystem(item.bit);return card;
 }
-function patchSystemGlyph(node,item){const img=node.querySelector('img');setAttr(img,'src',item.image)}
+function patchSystemGlyph(node,item){const img=node.querySelector('img');setAttr(img,'src',item.image);node.classList.toggle('native-image',!!item.imageNative)}
 function chooseSystem(bit){systemCurrent=bit;renderSystem();systemNodes.get(bit)?.focus({preventScroll:true})}
 function filterSystem(value){systemFilter=value;renderSystem()}
 function renderSystem(){

@@ -30,9 +30,34 @@ The publish output is a single `app/TrayPilot.exe`, including built-in languages
 .\app\TrayPilot.exe --system-icons-probe .\probe.txt
 .\app\TrayPilot.exe --system-icons-probe-legacy .\probe-legacy.txt
 .\app\TrayPilot.exe --symbol-cache-test .\symbol-cache-test.txt
+.\app\TrayPilot.exe --explorer-images-test .\image-test.txt
+.\app\TrayPilot.exe --explorer-images-probe .\image-probe.json
+.\app\TrayPilot.exe --application-images-test .\application-image-test.txt
+.\app\TrayPilot.exe --application-images-probe .\application-image-probe.json
+.\app\TrayPilot.exe --application-model-test .\application-model-test.txt
+.\app\TrayPilot.exe --application-model-probe .\application-model-probe.json
+.\app\TrayPilot.exe --application-model-live-test .\application-model-live.json
 ```
 
 The first two commands test the updated and original methods respectively, reporting the backend and detected controls. Failures are written to the corresponding `.error.txt` file. The third checks the current symbol cache and rejection of corrupt or mismatched PDBs.
+
+`--application-images-test` uses synthetic notifications to check ordinary-software HICON copying, pixel decoding, UID/GUID separation, process identity, updates, invalidation and cleanup. `--application-images-probe` tests the ordinary-software `ITrayNotify` callback and an independent native C++ control. It creates, updates, hides and deletes only its own test icon; user icons remain read-only, with no screen capture or preference writes. Its JSON separates `connected` (registration succeeded) from `available` (matching images actually received). No matching image produces exit code 1.
+
+### Ordinary application image resources
+
+`ScanSession` owns `ApplicationIconSource`. It prepares exact-version taskbar.dll and SystemTray.dll symbols and attaches a read-only image session in the background, preserving the initial fallback render. Failures back off for 60 seconds; Explorer identity changes cause reconnection. Disposal cleans up current and pending sessions. Taskbar.pdb body downloads time out after 45 seconds; larger SystemTray.pdb downloads after 120 seconds. Valid caches are reused. All DbgHelp operations share one native mutex.
+
+`native/ApplicationModelImages.h` traverses primary-taskbar `NotifyIconView` objects on their XAML thread. PDB-matched interface vtables and getters provide `IconViewModel.ContentVM`. Verified constructor/accessor instruction patterns identify its retained notification data model; `UDKObject` then provides `WindowsUdk.UI.Shell.NotificationAreaIcon`. Identity field layouts are also instruction-validated. Unknown layouts fall back without speculative field scanning or unverified interface-slot calls.
+
+The image resource is a `SoftwareBitmap`. A short read-only lock copies BGRA pixels after plane/bounds/alpha validation, immediately closing the reference and lock. Explorer's original bitmap is never modified or closed; format conversion creates a separate copy. This path does not capture the screen or render controls. Bounded image-stream reading is retained for compatible resource types.
+
+Companion IPC protocol 3 uses a 200-byte header and 128 records of 66088 bytes (8459464 total). Each image is limited to 65536 bytes and 128×128 raw pixels. Records carry HWND, UID, GUID, dimensions and diagnostic types. Sequence counters guard coherent reads; failed, invalid or older-than-three-second images select fallback. Matching prefers GUID, otherwise actual HWND/UID, and checks PID, start time and executable. Conflicting identities never choose an arbitrary image.
+
+`TrayEntry.LiveIconSnapshot` is excluded from saved settings/recovery records. `TrayImages` loads live pixels → original IconSnapshot → executable → generic icon. Web cache signatures include the source and bytes, updating both the main list and quick panel on changes, failures and recovery. Read-only native sessions neither change system-control visibility nor consume preserved system-control original values.
+
+`--application-model-test` covers pixels, transparency, identity, IPC and actual Web image fallback/recovery. `--application-model-probe` exports matched images and record diagnostics. `--application-model-live-test` exercises real scan integration. Live probes never alter icon visibility or preferences. Windows 11 25H2 testing obtained Weixin, QQ, PowerToys PowerDisplay and EarTrumpet images; entries without an instantiated model used fallback. The backend does not open overflow views or temporarily show hidden icons; unavailable overflow/hidden models may always fall back. Other Windows layouts remain unverified.
+
+The early ITrayNotify route remains diagnostic-only: managed and independent native callbacks both returned zero records on the tested installation. Production image reading does not use it. Unregistration uses a pointer to a 32-bit cookie.
 
 ### Refresh and startup
 
@@ -94,11 +119,19 @@ Single-instance activation precedes settings loading. Startup recovery runs seri
 
 This project is a prototype targeting **Windows 11 25H2**. Other Windows versions, future patches and unusual applications require validation on the actual system.
 
-- Icons come from the Windows cache, then the executable, then a generic fallback. Cached icons and tooltips may be stale. Names mainly come from executable file descriptions, so scripts may display their host application's name.
+- Application icons prefer Explorer's current image, then the Windows cache, executable and generic fallback. Cached icons and tooltips may be stale. Names mainly come from executable file descriptions, so scripts may display their host application's name.
 - Explorer's built-in controls have the **System icons** page; see its compatibility and activation limitations above.
 - Missing tray records, unmatched paths, protected processes and special implementations may prevent discovery or control.
 
 ## System icon implementation
+
+Images are independent of visibility control. `native/IconImages.h` renders identified controls inside Explorer on its XAML thread using `RenderTargetBitmap.RenderAsync` / `GetPixelsAsync`, with no screen capture or temporary unhiding. Each control has at most one pending operation and starts at most once per second while appearance reading is enabled. Transparent layout padding is removed; glyph layers and colors are preserved.
+
+Shared-memory protocol version 2 places 12 image slots at offset 2024. Each 49176-byte slot holds a 24-byte header and up to 192×64×4 premultiplied BGRA bytes; mapping size is 592136 bytes. Independent sequence counters guard coherent reads. Managed code rejects failed HRESULTs, empty/transparent images, invalid dimensions, future timestamps and images older than three seconds. Coroutines retain their original session and do not publish after stop; image failures never set the visibility session's error field.
+
+`ExplorerIconImage.cs` validates and converts pixels. `WebSystemIcons.cs` caches PNGs by pixel hash, automatically uses `SystemIconImages.Create` on failure or expiry and resumes internal images after a successful retry. Native images retain colors on a neutral backing; fallback masks retain page-theme tinting. Collapsed or absent controls and controls without visible graphics, such as Show desktop, may always use fallback. Ordinary application icons use the separate resource-reading and fallback path described above.
+
+`--explorer-images-test` checks IPC validation and premultiplied colors. The read-only `--explorer-images-probe` writes per-control availability, dimensions, HRESULTs and extracted PNGs beside its JSON report; it returns nonzero if no valid image is obtained. Neither command captures the screen. `--web-system-bridge-test` also covers image priority, fallback and retry. A live Windows 11 25H2 probe obtained network, clock and supplementary language images. Volume and language controls were already hidden; absent categories remain unverified.
 
 The system-icons dialog offers two **Detection method** choices. Selection reconnects immediately and is saved across launches:
 

@@ -18,6 +18,7 @@ internal sealed class SystemIconSession : IDisposable
     int request;
     bool disposed;
     internal bool IsDisposed => disposed;
+    internal ApplicationModelImages? ApplicationImages { get; }
     internal uint Pid { get; }
     internal bool Legacy { get; }
     internal int Found => view.ReadInt32(16);
@@ -28,6 +29,15 @@ internal sealed class SystemIconSession : IDisposable
     internal int Requested => view.ReadInt32(8);
     internal void SetAppearanceCapture(bool enabled) => view.Write(2016, enabled ? 1 : 0);
     internal bool SharedMicrophoneLocation => view.ReadInt32(56) != 0;
+    internal ExplorerIconImage?[] ReadImages()
+    {
+        var images = new ExplorerIconImage?[ExplorerIconImage.Count];
+        long now = Environment.TickCount64;
+        int visible = Found & ~Hidden;
+        for (int i = 0; i < images.Length; i++)
+            if ((visible & (1 << i)) != 0) images[i] = ExplorerIconImage.Read(view, i, now);
+        return images;
+    }
     internal (string Text, string Font)[] ReadAppearances()
     {
         var result = new (string Text, string Font)[12];
@@ -52,7 +62,7 @@ internal sealed class SystemIconSession : IDisposable
         Native.GetWindowThreadProcessId(window, out var pid);
         return pid;
     }
-    internal SystemIconSession(bool legacy = false, int initialMask = 0)
+    internal SystemIconSession(bool legacy = false, int initialMask = 0, bool applicationImages = false)
     {
         if ((initialMask & ~SystemIconCatalog.All) != 0) throw new ArgumentOutOfRangeException(nameof(initialMask));
         Legacy = legacy;
@@ -63,14 +73,15 @@ internal sealed class SystemIconSession : IDisposable
         string? symbols = legacy ? null : TaskbarSymbols.PrepareAsync().GetAwaiter().GetResult();
         string dll = NativeHelper.Extract();
         string name = @"Local\TrayPilot.SystemIcons." + Environment.ProcessId + "." + Guid.NewGuid().ToString("N");
-        mapping = MemoryMappedFile.CreateNew(name, 4096);
+        mapping = MemoryMappedFile.CreateNew(name, ExplorerIconImage.MappingSize);
         view = mapping.CreateViewAccessor();
-        view.Write(0, 1); view.Write(4, Environment.ProcessId);
+        view.Write(0, 2); view.Write(4, Environment.ProcessId);
         view.Write(8, initialMask);
         SetAppearanceCapture(true);
         try
         {
             library = NativeLibrary.Load(dll);
+            if (applicationImages) ApplicationImages = new(name, symbols ?? throw new NotSupportedException("Application images require verified symbols."), library);
             int result = legacy
                 ? Marshal.GetDelegateForFunctionPointer<AttachDelegate>(NativeLibrary.GetExport(library, "Attach"))(Pid, name)
                 : Marshal.GetDelegateForFunctionPointer<AttachWithSymbolsDelegate>(NativeLibrary.GetExport(library, "AttachWithSymbols"))(Pid, name, symbols!);
@@ -91,7 +102,12 @@ internal sealed class SystemIconSession : IDisposable
     }
     internal string DebugInfo()
     {
-        return $"Backend={(Legacy ? "LegacySymbolServer" : "DirectSymbolCache")} OS={Environment.OSVersion.Version}\nTaskbar timestamp={view.ReadUInt32(48):X8} ImageSize={view.ReadUInt32(52)}";
+        string images = string.Join(" ", Enumerable.Range(0, 12).Select(i =>
+        {
+            long offset = ExplorerIconImage.Offset + i * ExplorerIconImage.SlotSize;
+            return $"{1 << i}:{view.ReadInt32(offset + 4)}x{view.ReadInt32(offset + 8)}/0x{view.ReadInt32(offset + 12):X8}";
+        }));
+        return $"Backend={(Legacy ? "LegacySymbolServer" : "DirectSymbolCache")} OS={Environment.OSVersion.Version}\nTaskbar timestamp={view.ReadUInt32(48):X8} ImageSize={view.ReadUInt32(52)}\nExplorer images (bit:widthxheight/HRESULT)={images}";
     }
     internal int IdentifyGlyph(char glyph) => Marshal.GetDelegateForFunctionPointer<IdentifyGlyphDelegate>(
         NativeLibrary.GetExport(library, "IdentifyGlyph"))(glyph);
@@ -104,6 +120,7 @@ internal sealed class SystemIconSession : IDisposable
         view.Write(12, restore ? 1 : 2);
         // The helper also watches our process handle and restores after a crash.
         view.Dispose(); mapping.Dispose();
+        ApplicationImages?.Dispose();
         if (library != 0) { NativeLibrary.Free(library); library = 0; }
     }
 }

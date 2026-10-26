@@ -1,12 +1,13 @@
 using System.Drawing.Imaging;
 using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace TrayPilot;
 
 internal sealed partial class MainForm
 {
     readonly System.Windows.Forms.Timer webSystemPoll = new() { Interval = 1000 };
-    readonly Dictionary<int, (string Signature, string Image)> webSystemImages = new();
+    readonly Dictionary<int, (string Signature, string Image, bool Native)> webSystemImages = new();
     bool webSystemWorking;
     bool webSystemReconnecting;
     string webSystemError = "";
@@ -33,19 +34,43 @@ internal sealed partial class MainForm
             items = SystemIconCatalog.Items.Select((item, index) =>
             {
                 var appearance = index < snapshot.Appearances.Length ? snapshot.Appearances[index] : default;
-                string signature = appearance.Text + "|" + appearance.Font;
-                if (!webSystemImages.TryGetValue(item.Mask, out var cached) || cached.Signature != signature)
-                {
-                    using var bitmap = SystemIconImages.Create(item.Mask, 64, appearance);
-                    using var stream = new MemoryStream(); bitmap.Save(stream, ImageFormat.Png);
-                    cached = (signature, "data:image/png;base64," + Convert.ToBase64String(stream.ToArray()));
-                    webSystemImages[item.Mask] = cached;
-                }
+                var native = index < snapshot.Images.Length ? snapshot.Images[index] : null;
+                var cached = WebSystemImage(item.Mask, appearance, native);
                 return new { bit = item.Mask, name = L.T(item.Name), description = L.T("systemPageDescription" + item.Mask),
                     group = item.Mask <= 8 ? "common" : item.Mask is 256 or 512 or 2048 ? "taskbar" : "indicators",
-                    state = snapshot.StateKey(item.Mask), status = L.T(snapshot.StateKey(item.Mask)), image = cached.Image };
+                    state = snapshot.StateKey(item.Mask), status = L.T(snapshot.StateKey(item.Mask)), image = cached.Image,
+                    imageNative = cached.Native };
             })
         };
+    }
+
+    (string Signature, string Image, bool Native) WebSystemImage(int mask, (string Text, string Font) appearance, ExplorerIconImage? native)
+    {
+        if (native != null)
+        {
+            string signature = $"native:{native.Width}:{native.Height}:" + Convert.ToHexString(SHA256.HashData(native.Pixels));
+            if (webSystemImages.TryGetValue(mask, out var current) && current.Signature == signature) return current;
+            try
+            {
+                using var bitmap = native.CreateBitmap();
+                if (bitmap != null)
+                {
+                    using var stream = new MemoryStream(); bitmap.Save(stream, ImageFormat.Png);
+                    return webSystemImages[mask] = (signature, "data:image/png;base64," + Convert.ToBase64String(stream.ToArray()), true);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException)
+            { /* Optional image failure must preserve the original rendering path. */ }
+        }
+        string fallbackSignature = "fallback:" + appearance.Text + "|" + appearance.Font;
+        if (!webSystemImages.TryGetValue(mask, out var cached) || cached.Signature != fallbackSignature)
+        {
+            using var bitmap = SystemIconImages.Create(mask, 64, appearance);
+            using var stream = new MemoryStream(); bitmap.Save(stream, ImageFormat.Png);
+            cached = (fallbackSignature, "data:image/png;base64," + Convert.ToBase64String(stream.ToArray()), false);
+            webSystemImages[mask] = cached;
+        }
+        return cached;
     }
 
     void StartWebSystemPage()
