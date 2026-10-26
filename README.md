@@ -79,11 +79,17 @@ Start with Windows is off by default. Manage it through TrayPilot's Settings or 
 
 Open **System icons** to manage the primary taskbar's volume, network, battery, clock, language bar, notification bell, Show desktop button and other controls. Double-click an item to toggle its visibility; choices are saved automatically.
 
+While TrayPilot is running, selected language and supplementary language icons are hidden again on visibility changes and taskbar layout updates to reduce flashes when returning from RDP. Periodic checks remain as a fallback. Actual RDP transitions need verification on the target Windows version; some control-recreation scenarios may still flash.
+
+Only **Language bar** and **Language supplementary icons** offer a **Force show** switch in their details, off by default and saved independently. Clear the control's hide preference before enabling force show. While enabled, TrayPilot reverses attempts to hide an existing control, and hiding actions are disabled. When RDP focus excludes the local language icon, TrayPilot retains its last valid local data and resumes live updates upon returning locally. Turn force show off before hiding; disabling it releases data retention and visibility protection. Enforcement continues with the main window closed and resumes after restarting TrayPilot. Startup primes the cache from existing icons; an icon that has never supplied valid data must still appear first.
+
+Force show also protects the content path and language-stack containers. Data interfaces are verified using symbols matching the installed Windows version; first connection may require a symbol download. If returning from RDP still leaves the control waiting to appear, expand **Connection diagnostics** in its details and copy the `Language structural transitions` section. The last 8 structural changes and retention counters exclude input text and window titles. Incompatible symbols or interfaces produce a connection error rather than claiming force show succeeded.
+
 The page prefers images rendered from Explorer's internal controls, preserving their current appearance and colors without screen capture. Hidden or absent controls and image retrieval failures automatically fall back to the existing font rendering or built-in icons. Successful retries restore the Explorer image.
 
 Keep **Updated compatibility method (recommended)** selected for normal use. The first connection, or a connection after a Windows update, may need internet access and a short wait. If it fails, try again later or try the other detection method.
 
-System-icon choices are separate from application hide rules. The main window's **Restore all** restores only application tray icons. **Restore all** in the **System icons** window restores only system controls and clears their saved hiding choices, without affecting application icons or rules. **Show all icons** still clears saved system-icon hiding choices; set them again if you want them hidden later.
+System-icon choices are separate from application hide rules. The main window's **Restore all** restores only application tray icons. **Restore all** in the **System icons** window restores only system controls and clears their saved hiding choices, without affecting application icons or rules. **Show all icons** still clears saved system-icon hiding choices; set them again if you want them hidden later. Both operations retain force-show preferences. **Undo last change** in the system page restores both hide and force-show selections from the previous operation.
 
 ## Common questions
 

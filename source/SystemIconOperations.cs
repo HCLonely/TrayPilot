@@ -9,7 +9,7 @@ internal sealed partial class MainForm
             connected ? session!.Hidden : 0, connected && session!.SharedMicrophoneLocation, controller.Saved.UseLegacySystemIconDiscovery,
             connected || session == null || session.IsDisposed ? "" : L.F("systemNativeFailed", $"0x{session.Error:X8}"),
             connected ? session!.DebugInfo() : "", connected ? session!.ReadAppearances() : new (string, string)[12])
-        { Images = connected ? session!.ReadImages() : new ExplorerIconImage?[12] };
+        { ForcedShown = systemIconsForcedShown, Images = connected ? session!.ReadImages() : new ExplorerIconImage?[12] };
     }
 
     void UpdateSystemPageActivation()
@@ -39,27 +39,30 @@ internal sealed partial class MainForm
         return await ReconnectSystemIconsPageAsync();
     }
 
-    async Task<SystemIconsSnapshot> ChangeSystemIconsPageAsync(int mask, int restoreMask)
+    async Task<SystemIconsSnapshot> ChangeSystemIconsPageAsync(int mask, int restoreMask, int forcedShown)
     {
+        SystemIconCatalog.ValidateVisibility(mask, forcedShown);
         if (closing || systemIconsChanging || systemIconsConnecting || !ReadSystemIconsSnapshot().Connected || systemIconSession is not { } session)
             throw new IOException(L.T("systemNativeUnavailable"));
-        int previous = systemIconsRequested; systemIconsChanging = true;
+        if (forcedShown != 0 && session.SourceStatus < 0)
+            throw new IOException(L.F("systemNativeFailed", $"0x{session.SourceStatus:X8}"));
+        int previous = systemIconsRequested, previousForced = systemIconsForcedShown; systemIconsChanging = true;
         try
         {
-            int request = session.Set(mask, restoreMask);
+            int request = session.Set(mask, restoreMask, forcedShown);
             await AwaitSystemIconRequest(session, request);
             int expectedHidden = mask & session.Found;
             if (session.SharedMicrophoneLocation && (mask & 48) != 48) expectedHidden &= ~48;
-            if ((session.Hidden & expectedHidden) != expectedHidden || (session.Hidden & session.Found & restoreMask) != 0)
+            if ((session.Hidden & expectedHidden) != expectedHidden || (session.Hidden & session.Found & (restoreMask | forcedShown)) != 0)
                 throw new IOException(L.F("systemNativeFailed", $"0x{session.Error:X8}"));
-            controller.SetHiddenSystemIcons(mask); systemIconsRequested = mask;
+            controller.SetSystemIconVisibility(mask, forcedShown); systemIconsRequested = mask; systemIconsForcedShown = forcedShown;
             return ReadSystemIconsSnapshot();
         }
         catch (Exception operationError)
         {
             if (!IsDisposed && !closing && ReferenceEquals(systemIconSession, session) && !session.IsDisposed)
             {
-                try { await AwaitSystemIconRequest(session, session.Set(previous, mask & ~previous)); }
+                try { await AwaitSystemIconRequest(session, session.Set(previous, mask & ~previous, previousForced)); }
                 catch (Exception rollbackError) { throw new IOException(L.T("systemPageRollbackFailed") + " " + operationError.Message + " · " + rollbackError.Message, operationError); }
             }
             throw;

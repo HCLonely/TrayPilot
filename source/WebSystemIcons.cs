@@ -11,10 +11,10 @@ internal sealed partial class MainForm
     bool webSystemWorking;
     bool webSystemReconnecting;
     string webSystemError = "";
-    int? webSystemUndo;
-    int webSystemUndoExpected;
+    (int Hidden, int Forced)? webSystemUndo;
+    (int Hidden, int Forced) webSystemUndoExpected;
     internal Func<SystemIconsSnapshot>? WebSystemReadForDiagnostics;
-    internal Func<int, int, Task<SystemIconsSnapshot>>? WebSystemChangeForDiagnostics;
+    internal Func<int, int, int, Task<SystemIconsSnapshot>>? WebSystemChangeForDiagnostics;
     internal Func<bool?, Task<SystemIconsSnapshot>>? WebSystemConnectForDiagnostics;
     bool WebSystemVisible => webReady && webPresented && webPageActive && webPage == "system";
 
@@ -24,11 +24,11 @@ internal sealed partial class MainForm
     {
         var snapshot = ReadWebSystemSnapshot();
         if (webSystemReconnecting) snapshot = snapshot with { Connecting = true };
-        if (webSystemUndo.HasValue && snapshot.Requested != webSystemUndoExpected) webSystemUndo = null;
+        if (webSystemUndo.HasValue && (snapshot.Requested, snapshot.ForcedShown) != webSystemUndoExpected) webSystemUndo = null;
         return new
         {
             connected = snapshot.Connected, connecting = snapshot.Connecting, working = webSystemWorking,
-            requested = snapshot.Requested, found = snapshot.Found, hidden = snapshot.Hidden,
+            requested = snapshot.Requested, forcedShown = snapshot.ForcedShown, found = snapshot.Found, hidden = snapshot.Hidden,
             shared = snapshot.Shared, legacy = snapshot.Legacy, error = webSystemError.Length > 0 ? webSystemError : snapshot.Error,
             diagnostic = snapshot.Diagnostic, undo = webSystemUndo.HasValue,
             items = SystemIconCatalog.Items.Select((item, index) =>
@@ -103,23 +103,33 @@ internal sealed partial class MainForm
         if (WebReadOnlyPreview) throw new InvalidOperationException("Read-only preview.");
         if (!WebSystemVisible || webSystemWorking || systemIconsChanging || systemIconsConnecting) throw new IOException(L.T("ruleOperationBusy"));
         var before = ReadWebSystemSnapshot();
-        int mask = before.Requested, restore = 0;
+        int mask = before.Requested, forcedShown = before.ForcedShown, restore = 0;
         bool? legacy = null;
         if (action == "systemToggle")
         {
             int bit = root.GetProperty("bit").GetInt32();
             if (!SystemIconCatalog.Items.Any(item => item.Mask == bit)) throw new InvalidDataException("Unknown system control.");
             bool show = root.GetProperty("show").GetBoolean();
+            if (!show && (forcedShown & bit) != 0) throw new IOException(L.T("systemForceShowDisableFirst"));
             mask = show ? mask & ~bit : mask | bit; restore = show ? bit : 0;
+        }
+        else if (action == "systemForceShow")
+        {
+            int bit = root.GetProperty("bit").GetInt32();
+            if (bit is not (256 or 512)) throw new InvalidDataException("Unsupported force-show control.");
+            bool enabled = root.GetProperty("enabled").GetBoolean();
+            if (enabled && (mask & bit) != 0) throw new IOException(L.T("systemForceShowUnhideFirst"));
+            forcedShown = enabled ? forcedShown | bit : forcedShown & ~bit;
         }
         else if (action == "systemRestore") { mask = 0; restore = SystemIconCatalog.All; }
         else if (action == "systemUndo")
         {
-            if (!webSystemUndo.HasValue || webSystemUndoExpected != before.Requested) throw new IOException(L.T("ruleOperationBusy"));
-            mask = webSystemUndo.Value; restore = before.Requested & ~mask;
+            if (!webSystemUndo.HasValue || webSystemUndoExpected != (before.Requested, before.ForcedShown)) throw new IOException(L.T("ruleOperationBusy"));
+            (mask, forcedShown) = webSystemUndo.Value; restore = before.Requested & ~mask;
         }
         else if (action == "systemScheme") legacy = root.GetProperty("legacy").GetBoolean();
         else if (action != "systemReconnect") throw new InvalidDataException("Unknown system action.");
+        SystemIconCatalog.ValidateVisibility(mask, forcedShown);
         bool reconnecting = action is "systemScheme" or "systemReconnect";
         if (!reconnecting && (!before.Connected || before.Connecting)) throw new IOException(L.T("systemNativeUnavailable"));
         EnsureUiContext(); busy = true; webForegroundOperation = true; webSystemWorking = true; webSystemReconnecting = reconnecting; webSystemError = ""; PublishWebState();
@@ -128,11 +138,11 @@ internal sealed partial class MainForm
             var result = reconnecting
                 ? WebSystemConnectForDiagnostics != null ? await WebSystemConnectForDiagnostics(legacy)
                     : legacy.HasValue ? await ChangeSystemDiscoveryPageAsync(legacy.Value) : await ReconnectSystemIconsPageAsync()
-                : WebSystemChangeForDiagnostics != null ? await WebSystemChangeForDiagnostics(mask, restore) : await ChangeSystemIconsPageAsync(mask, restore);
+                : WebSystemChangeForDiagnostics != null ? await WebSystemChangeForDiagnostics(mask, restore, forcedShown) : await ChangeSystemIconsPageAsync(mask, restore, forcedShown);
             if (!reconnecting)
             {
-                webSystemUndo = action == "systemUndo" ? null : before.Requested;
-                webSystemUndoExpected = result.Requested;
+                webSystemUndo = action == "systemUndo" ? null : (before.Requested, before.ForcedShown);
+                webSystemUndoExpected = (result.Requested, result.ForcedShown);
             }
             return null;
         }

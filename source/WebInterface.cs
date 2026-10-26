@@ -292,7 +292,7 @@ internal sealed partial class MainForm
                 var data = await ExecuteWebRuleCommand(action, root);
                 PublishWebState(force: true); Reply(requestId, true, data: data); return;
             }
-            else if (action is "systemToggle" or "systemRestore" or "systemUndo" or "systemScheme" or "systemReconnect")
+            else if (action is "systemToggle" or "systemForceShow" or "systemRestore" or "systemUndo" or "systemScheme" or "systemReconnect")
             {
                 var data = await ExecuteWebSystemCommand(action, root);
                 PublishWebState(force: true); Reply(requestId, true, data: data); return;

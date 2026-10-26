@@ -18,6 +18,7 @@ internal sealed class SavedState
     public List<TrayEntry> Recovery { get; set; } = new();
     public Dictionary<string, int> ProgramHotkeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int HiddenSystemIcons { get; set; }
+    public int ForcedShownSystemIcons { get; set; }
     public bool UseLegacySystemIconDiscovery { get; set; }
     public string Language { get; set; } = L.SystemLanguage;
     public bool CloseToTray { get; set; } = true;
@@ -69,6 +70,7 @@ internal sealed class Controller
         state.Language = string.IsNullOrWhiteSpace(state.Language) ? L.SystemLanguage : state.Language;
         state.Theme = state.Theme is "light" or "dark" ? state.Theme : "system";
         state.HiddenSystemIcons &= SystemIconCatalog.All;
+        state.ForcedShownSystemIcons &= SystemIconCatalog.Language & ~state.HiddenSystemIcons;
         return state;
     }
     SavedState Load()
@@ -161,10 +163,16 @@ internal sealed class Controller
     }
     internal void SetHiddenSystemIcons(int mask)
     {
-        if ((mask & ~SystemIconCatalog.All) != 0) throw new ArgumentOutOfRangeException(nameof(mask));
-        int previous = Saved.HiddenSystemIcons;
-        Saved.HiddenSystemIcons = mask;
-        try { Save(); } catch { Saved.HiddenSystemIcons = previous; throw; }
+        SetSystemIconVisibility(mask, Saved.ForcedShownSystemIcons);
+    }
+    internal void SetSystemIconVisibility(int hidden, int forcedShown)
+    {
+        SystemIconCatalog.ValidateVisibility(hidden, forcedShown);
+        int previousHidden = Saved.HiddenSystemIcons, previousForced = Saved.ForcedShownSystemIcons;
+        Saved.HiddenSystemIcons = hidden;
+        Saved.ForcedShownSystemIcons = forcedShown;
+        try { Save(); }
+        catch { Saved.HiddenSystemIcons = previousHidden; Saved.ForcedShownSystemIcons = previousForced; throw; }
     }
     internal void AddRule(string path)
     {

@@ -20,6 +20,7 @@ internal sealed partial class MainForm : Form
         initialized = initialize;
         busy = restoreOnStartup;
         systemIconsRequested = controller.Saved.HiddenSystemIcons & SystemIconCatalog.All;
+        systemIconsForcedShown = controller.Saved.ForcedShownSystemIcons & SystemIconCatalog.Language & ~systemIconsRequested;
         this.startup = startup ?? new StartupRegistration();
         this.visibilityScanner = visibilityScanner ?? Scanner.Scan;
         L.Set(controller.Saved.Language); UiTheme.Set(controller.Saved.Theme);

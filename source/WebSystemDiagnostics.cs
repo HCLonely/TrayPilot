@@ -102,12 +102,12 @@ internal static partial class Diagnostics
         TaskCompletionSource<bool>? delayed = null;
         using var form = new MainForm(controller, initialize: false);
         form.WebSystemReadForDiagnostics = () => snapshot;
-        form.WebSystemChangeForDiagnostics = async (mask, restore) =>
+        form.WebSystemChangeForDiagnostics = async (mask, restore, forced) =>
         {
             calls++; restoreMask = restore; if (delayed != null) await delayed.Task;
-            controller.SetHiddenSystemIcons(mask);
+            controller.SetSystemIconVisibility(mask, forced);
             int hidden = mask & snapshot.Found; if (snapshot.Shared && (mask & 48) != 48) hidden &= ~48;
-            return snapshot = snapshot with { Requested = mask, Hidden = hidden };
+            return snapshot = snapshot with { Requested = mask, ForcedShown = forced, Hidden = hidden };
         };
         form.WebSystemConnectForDiagnostics = legacy =>
         {
@@ -116,6 +116,8 @@ internal static partial class Diagnostics
             return Task.FromResult(snapshot = snapshot with { Connected = true, Connecting = false, Error = "" });
         };
         Exception? failure = null; var checks = new List<string>();
+        TestSystemVisibilityPreferences(folder, checks);
+        L.Set(controller.Saved.Language);
         form.Shown += async (_, _) =>
         {
             try
@@ -128,6 +130,53 @@ internal static partial class Diagnostics
                 void Publish() => typeof(MainForm).GetMethod("PublishWebState", DashboardFlags)!.Invoke(form, new object[] { true });
                 await Request("await send('navigate',{page:'system'})");
                 DashboardField<System.Windows.Forms.Timer>(form, "webSystemPoll").Stop();
+                await core.ExecuteScriptAsync("chooseSystem(1)");
+                await Check("$('#systemDetail .system-force').hidden", "Force-show switch is absent for other system controls.");
+                await core.ExecuteScriptAsync("chooseSystem(256)");
+                await Check("!$('#systemDetail .system-force').hidden&&!$('#systemForceShow').disabled&&$('#systemForceShow').getAttribute('aria-checked')==='false'", "Language force show defaults off and can be enabled when unhidden.");
+                await Request("await send('systemForceShow',{bit:256,enabled:true})");
+                await Check("state.system.forcedShown===256&&$('#systemForceShow').getAttribute('aria-checked')==='true'&&$('#systemToggleSelected').disabled&&systemNodes.get(256).querySelector('button').disabled", "Force show locks both hide actions while keeping its own switch usable.");
+                if (new Controller(folder).Saved.ForcedShownSystemIcons != 256) throw new IOException("Force-show preference not persisted.");
+                checks.Add("Force-show preference persists in isolated settings.");
+                await Request("let rejected=false;try{await send('systemToggle',{bit:256,show:false})}catch{rejected=true}if(!rejected)throw Error('Forced control hidden')");
+                await Check("state.system.requested===0&&state.system.forcedShown===256", "Bridge rejects hiding a force-shown control without changing preferences.");
+                await Request("await send('systemForceShow',{bit:512,enabled:true})");
+                await core.ExecuteScriptAsync("chooseSystem(512)");
+                await Check("state.system.forcedShown===768&&systemItem(512).state==='systemForceShowWaiting'&&!$('#systemForceShow').disabled", "Supplementary force show is independent and can be preset for an absent control.");
+                await Request("await send('systemRestore')");
+                await Check("state.system.forcedShown===768&&state.system.requested===0", "Restoring all hidden controls preserves force-show preferences.");
+                await Request("await send('systemForceShow',{bit:512,enabled:false});await send('systemUndo')");
+                await Check("state.system.forcedShown===768&&!state.system.undo", "Undo restores the full force-show preference pair.");
+                await Request("await send('systemForceShow',{bit:512,enabled:false});await send('systemToggle',{bit:512,show:false})");
+                await Check("$('#systemForceShow').disabled&&state.system.forcedShown===256&&state.system.requested===512", "Hidden supplementary icon disables its force-show switch independently.");
+                await Request("let rejected=false;try{await send('systemForceShow',{bit:512,enabled:true})}catch{rejected=true}if(!rejected)throw Error('Hidden control forced visible')");
+                await Request("let rejected=false;try{await send('systemForceShow',{bit:1,enabled:true})}catch{rejected=true}if(!rejected)throw Error('Other control force show accepted')");
+                await Request("let rejected=false;try{await send('systemForceShow',{bit:768,enabled:true})}catch{rejected=true}if(!rejected)throw Error('Combined bit accepted')");
+                await Request("let rejected=false;try{await send('systemForceShow',{bit:256,enabled:'false'})}catch{rejected=true}if(!rejected)throw Error('String boolean accepted')");
+                checks.Add("Force-show bridge rejects hidden controls, unsupported or combined bits, and non-boolean arguments.");
+                await Request("await send('systemToggle',{bit:512,show:true})");
+                Directory.CreateDirectory(Path.Combine(folder, "settings.json.tmp"));
+                try
+                {
+                    await Request("let rejected=false;try{await systemRequest('systemForceShow',{bit:512,enabled:true})}catch{rejected=true}if(!rejected)throw Error('Failed force save accepted')");
+                    if (snapshot.ForcedShown != 256 || controller.Saved.ForcedShownSystemIcons != 256 || new Controller(folder).Saved.ForcedShownSystemIcons != 256)
+                        throw new IOException("Failed force-show save changed preferences.");
+                    await Check("state.system.forcedShown===256&&$('#systemForceShow').getAttribute('aria-checked')==='false'&&!$('#systemForceShow').disabled", "Failed force-show save rolls back memory, persisted preferences and the switch.");
+                }
+                finally { Directory.Delete(Path.Combine(folder, "settings.json.tmp")); }
+                await Request("await send('systemForceShow',{bit:512,enabled:true});await send('systemScheme',{legacy:true})");
+                await Check("state.system.forcedShown===768", "Reconnecting preserves both force-show selections.");
+                await RunWebRulesScript(core, "await toggleSystemForceShow()");
+                await Check("state.system.forcedShown===256&&$('#systemForceShow').getAttribute('aria-checked')==='false'", "Details switch invokes the actual force-show handler to disable its preference.");
+                await RunWebRulesScript(core, "await toggleSystemForceShow()");
+                await Check("state.system.forcedShown===768&&$('#systemForceShow').getAttribute('aria-checked')==='true'", "Details switch invokes the actual force-show handler to re-enable its preference.");
+                // Save a real rendering of the new details control for visual review.
+                await core.ExecuteScriptAsync("chooseSystem(512);$('#systemDetail').scrollTop=0;$('#toast').classList.remove('show')");
+                using (var image = File.Create(output + ".force-show.png"))
+                    await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, image);
+                snapshot = snapshot with { ForcedShown = 256 }; Publish(); await Task.Delay(100);
+                await Check("!state.system.undo", "External force-show preference changes invalidate obsolete undo.");
+                await Request("await send('systemForceShow',{bit:256,enabled:false});await send('systemScheme',{legacy:false})");
                 snapshot = snapshot with { Images = new ExplorerIconImage?[12] };
                 snapshot.Images[0] = new(1, 1, new byte[] { 0, 0, 255, 255 }); Publish(); await Task.Delay(150);
                 await Check("systemItem(1).imageNative&&systemNodes.get(1).querySelector('.system-glyph').classList.contains('native-image')&&getComputedStyle(systemNodes.get(1).querySelector('img')).filter==='none'", "Explorer image is preferred and retains its original colors.");

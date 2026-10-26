@@ -40,6 +40,7 @@ internal static partial class Diagnostics
                 "--package-test" => TestPackage(args[1]),
                 "--system-icons-probe" => ProbeSystemIcons(args[1], false),
                 "--system-icons-probe-legacy" => ProbeSystemIcons(args[1], true),
+                "--language-source-live-test" => MonitorLanguageSource(args[1]),
                 "--system-icons-live-test" => TestLiveSystemIcons(args[1]),
                 "--verify-special-icons" => TestSpecialIcons(args[1]),
                 "--verify-task-manager" => TestTaskManager(args[1]),
@@ -57,6 +58,23 @@ internal static partial class Diagnostics
         for (int i = 0; i < 80 && session.Ticks == 0 && session.Error == 0; i++) Thread.Sleep(250);
         File.WriteAllText(path, $"PID={session.Pid} Found={session.Found} Hidden={session.Hidden} Ticks={session.Ticks} Error=0x{session.Error:X8}\n{session.DebugInfo()}");
         return session.Ticks > 0 && session.Error == 0 ? 0 : 1;
+    }
+    static int MonitorLanguageSource(string path)
+    {
+        using var session = new SystemIconSession(initialMask: 256, initialForcedShown: 512);
+        string previous = "";
+        var until = DateTime.UtcNow.AddMinutes(5);
+        while (DateTime.UtcNow < until && !File.Exists(path + ".stop"))
+        {
+            string state = $"Found={session.Found} Hidden={session.Hidden} Source=0x{session.SourceStatus:X8}\n{session.DebugInfo()}";
+            if (state != previous)
+            {
+                previous = state;
+                File.AppendAllText(path, $"\n[{DateTime.UtcNow:O}] {state}\n");
+            }
+            Thread.Sleep(250);
+        }
+        return session.Error == 0 && session.SourceStatus == 0 ? 0 : 1;
     }
     static int WriteScan(string path) { File.WriteAllText(path, JsonSerializer.Serialize(Scanner.Scan(), new JsonSerializerOptions { WriteIndented = true })); return 0; }
     static int WriteIcon(string path) { AppIcon.Save(path); return 0; }

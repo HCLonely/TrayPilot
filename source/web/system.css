@@ -9,3 +9,4 @@
 @media(prefers-reduced-motion:reduce){#systemPage .connection.loading .system-connect-icon svg{animation:none}}
 
 .system-glyph.native-image,.system-hero .system-glyph.native-image{background:transparent;border:0;border-radius:0;padding:0}.system-glyph.native-image img{filter:none}
+.system-force-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.system-force .system-switch{flex-shrink:0}.system-force .system-switch:disabled{cursor:not-allowed}.system-card .system-switch:disabled{cursor:not-allowed}

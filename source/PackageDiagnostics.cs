@@ -25,7 +25,7 @@ internal static partial class Diagnostics
             var library = NativeLibrary.Load(path);
             try
             {
-                foreach (string export in new[] { "Attach", "AttachWithSymbols", "IdentifyGlyph", "DllGetClassObject", "DllCanUnloadNow" })
+                foreach (string export in new[] { "Attach", "AttachWithSymbols", "AttachWithSourceSymbols", "IdentifyGlyph", "DllGetClassObject", "DllCanUnloadNow" })
                     Check(NativeLibrary.GetExport(library, export) != 0, "Embedded helper exports " + export + ".");
                 Check(NativeHelper.Extract(root) == path, "An already-loaded cached helper can be reused.");
             }

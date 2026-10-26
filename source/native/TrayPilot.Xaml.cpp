@@ -39,6 +39,7 @@ struct IconPixels {
 static_assert(sizeof(IconPixels)==49176);
 struct Shared {
     LONG version, owner;
+    // requested packs hide bits in 0..11 and forced-visible language bits in 16..27.
     volatile LONG requested, stop, found, hidden, ticks, error, alive, contexts, requestId, responseId;
     ULONG timestamp, imageSize;
     LONG reserved[2];
@@ -47,11 +48,18 @@ struct Shared {
     volatile LONG appearanceRequested;
     volatile LONG restoreRequested;
     IconPixels images[12];
+    volatile LONG languageTraceSequence;
+    wchar_t languageTrace[16384];
+    ULONG64 languageSourceSymbols[14];
+    LONG languageSourceStatus;
 };
 static_assert(offsetof(Shared, appearanceRequested)==2016);
 static_assert(offsetof(Shared, restoreRequested)==2020);
 static_assert(offsetof(Shared, images)==2024);
-static_assert(sizeof(Shared)==592136);
+static_assert(offsetof(Shared,languageTraceSequence)==592136);
+static_assert(offsetof(Shared,languageSourceSymbols)==624912);
+static_assert(offsetof(Shared,languageSourceStatus)==625024);
+static_assert(sizeof(Shared)==625032);
 #include "ApplicationModelImages.h"
 struct Session {
     HANDLE mapping{}, owner{};
@@ -61,18 +69,25 @@ struct Session {
     bool stopped() { return data->stop || WaitForSingleObject(owner,0) != WAIT_TIMEOUT; }
 };
 #include "IconImages.h"
+#include "LanguageSource.h"
 struct Original {
     weak_ref<FrameworkElement> element;
     Windows::Foundation::IInspectable local{nullptr};
     bool touched=true;
+    int64_t visibilityToken{};
+    LONG visibilityKind{};
+    bool forceOnly{};
 };
 // No active timer or owner handle is retained after an intentional no-restore exit.
 // Keep only weak element identities and their original values for a later session.
 thread_local std::unordered_map<HWND,std::vector<Original>> preservedOriginals;
 FrameworkElement TaskbarRoot(HWND window,Shared* data);
-struct Context {
+struct Context : std::enable_shared_from_this<Context> {
     std::shared_ptr<Session> session;
     weak_ref<FrameworkElement> root;
+    weak_ref<FrameworkElement> layoutRoot;
+    event_token layoutToken{};
+    bool watchingLayout{};
     std::vector<Original> originals;
     UINT_PTR timer{};
     bool updating{};
@@ -80,6 +95,54 @@ struct Context {
     HWND window{};
     IconAppearance icons[12]{};
     std::shared_ptr<IconImageRequest> imageRequests[12];
+    std::wstring lastLanguageState;
+    std::vector<std::wstring> languageTransitions;
+    static constexpr LONG LanguageMask=256|512;
+    static void Unwatch(Original& original) noexcept {
+        if(!original.visibilityToken) return;
+        try {
+            if(auto element=original.element.get())
+                element.UnregisterPropertyChangedCallback(UIElement::VisibilityProperty(),original.visibilityToken);
+        } catch(...) { /* Weak callbacks are also safe if XAML is already shutting down. */ }
+        original.visibilityToken=0;
+        original.visibilityKind=0;
+    }
+    void UnwatchLayout() noexcept {
+        if(!watchingLayout) return;
+        try {
+            if(auto frame=layoutRoot.get()) frame.LayoutUpdated(layoutToken);
+        } catch(...) { /* The delegate holds only a weak Context reference. */ }
+        watchingLayout=false;
+        layoutRoot={};
+    }
+    ~Context() {
+        UnwatchLayout();
+        for(auto& original:originals) Unwatch(original);
+    }
+    void WatchLayout(FrameworkElement const& frame) {
+        if(watchingLayout && layoutRoot.get()==frame) return;
+        UnwatchLayout();
+        if(!frame || session->application) return;
+        auto weak=weak_from_this();
+        layoutToken=frame.LayoutUpdated([weak](auto const&,auto const&) noexcept {
+            if(auto context=weak.lock()) context->RefreshLanguageVisibility();
+        });
+        layoutRoot=make_weak(frame);
+        watchingLayout=true;
+    }
+    void RefreshLanguageVisibility() noexcept {
+        if(updating || session->application || session->stopped()) return;
+        LONG request=session->data->requested;
+        if(!((request|(request>>16))&LanguageMask)) return;
+        updating=true;
+        try {
+            if(auto frame=root.get()) {
+                LONG found=0,visible=0;
+                Walk(frame,request,0,found,visible,0,0,true);
+            }
+        } catch(...) { /* The timer retries discovery and reports persistent failures. */ }
+        updating=false;
+    }
     void ReadImage(FrameworkElement const& element, int index) {
         auto& request=imageRequests[index];
         if(!request) request=std::make_shared<IconImageRequest>();
@@ -105,20 +168,47 @@ struct Context {
         for(int i=0;i<count;i++) ReadAppearance(Media::VisualTreeHelper::GetChild(node,i),kind,result,depth+1);
         return result.text[0]!=0;
     }
-    void Set(FrameworkElement const& element, bool hide) {
+    void Set(FrameworkElement const& element, bool hide, LONG kind=0, bool forceShow=false, bool forceOnly=false) {
         auto it = std::find_if(originals.begin(), originals.end(), [&](auto const& o) { return o.element.get() == element; });
-        if(hide) {
-            if(it == originals.end()) originals.push_back({make_weak(element), element.ReadLocalValue(UIElement::VisibilityProperty())});
-            else it->touched=true;
-            if(element.Visibility() != Visibility::Collapsed) element.Visibility(Visibility::Collapsed);
+        if(hide || forceShow) {
+            if(it == originals.end()) {
+                originals.push_back({make_weak(element), element.ReadLocalValue(UIElement::VisibilityProperty())});
+                it=std::prev(originals.end());
+            }
+            it->touched=true;
+            if(it->visibilityKind!=kind || it->forceOnly!=forceOnly) Unwatch(*it);
+            if((kind&LanguageMask) && !it->visibilityToken) {
+                auto weak=weak_from_this();
+                it->visibilityToken=element.RegisterPropertyChangedCallback(UIElement::VisibilityProperty(),
+                    [weak,kind,forceOnly](DependencyObject const& sender,DependencyProperty const&) noexcept {
+                        try {
+                            auto context=weak.lock();
+                            if(!context || context->session->stopped()) return;
+                            LONG request=context->session->data->requested;
+                            Visibility target;
+                            if(!forceOnly && (request&kind)==kind) target=Visibility::Collapsed;
+                            else if(forceOnly ? ((request>>16)&kind)!=0 : ((request>>16)&kind)==kind) target=Visibility::Visible;
+                            else return;
+                            auto control=sender.try_as<UIElement>();
+                            // The nested notification exits here instead of recursing.
+                            if(control && control.Visibility()!=target) control.Visibility(target);
+                        } catch(...) { /* Keep Explorer's property notification boundary noexcept. */ }
+                    });
+                it->visibilityKind=kind;
+                it->forceOnly=forceOnly;
+            }
+            auto target=hide ? Visibility::Collapsed : Visibility::Visible;
+            if(element.Visibility()!=target) element.Visibility(target);
         } else if(it != originals.end()) {
+            Unwatch(*it);
             if(it->local == DependencyProperty::UnsetValue()) element.ClearValue(UIElement::VisibilityProperty());
             else element.SetValue(UIElement::VisibilityProperty(), it->local);
             originals.erase(it);
         }
     }
     void Restore() {
-        for(auto const& original : originals) {
+        for(auto& original : originals) {
+            Unwatch(original);
             try {
                 if(auto element = original.element.get()) {
                     if(original.local == DependencyProperty::UnsetValue()) element.ClearValue(UIElement::VisibilityProperty());
@@ -158,7 +248,103 @@ struct Context {
         for(int i=0;i<count;i++) if(LONG kind=ContentKind(Media::VisualTreeHelper::GetChild(node,i),depth+1)) return kind;
         return 0;
     }
-    void Walk(DependencyObject const& node, LONG mask, LONG restoreMask, LONG& found, LONG& visible, int depth=0, int region=0) {
+    bool HasTextContent(DependencyObject const& node,int depth=0) {
+        if(depth>12) return false;
+        if(auto text=node.try_as<TextBlock>()) return !text.Text().empty();
+        int count=Media::VisualTreeHelper::GetChildrenCount(node);
+        for(int i=0;i<count;i++)
+            if(HasTextContent(Media::VisualTreeHelper::GetChild(node,i),depth+1)) return true;
+        return false;
+    }
+    LONG KnownLanguageKind(FrameworkElement const& element) {
+        for(auto const& original:originals)
+            if(!original.forceOnly && (original.visibilityKind==256 || original.visibilityKind==512) && original.element.get()==element)
+                return original.visibilityKind;
+        return 0;
+    }
+    bool GuardLanguageContent(DependencyObject const& node,LONG kind,int depth=0) {
+        if(depth>12) return false;
+        auto type=get_class_name(node);
+        bool content=type==L"SystemTray.LanguageTextIconContent" || type==L"SystemTray.LanguageImageIconContent" ||
+            type==L"SystemTray.ImageIconContent";
+        if(auto text=node.try_as<TextBlock>()) content=!text.Text().empty();
+        int count=Media::VisualTreeHelper::GetChildrenCount(node);
+        for(int i=0;i<count;i++)
+            content=GuardLanguageContent(Media::VisualTreeHelper::GetChild(node,i),kind,depth+1) || content;
+        // Only the path to actual content is protected; dormant template layers stay untouched.
+        if(content) if(auto element=node.try_as<FrameworkElement>()) Set(element,false,kind,true,true);
+        return content;
+    }
+    void GuardLanguageAncestors(FrameworkElement const& element,LONG forced) {
+        auto parent=Media::VisualTreeHelper::GetParent(element);
+        for(int depth=0;parent && depth<24;depth++) {
+            auto ancestor=parent.try_as<FrameworkElement>();
+            if(!ancestor) break;
+            // Never override the tray/taskbar root or Windows taskbar auto-hide.
+            if(get_class_name(ancestor)==L"SystemTray.SystemTrayFrame" || ancestor==root.get()) break;
+            Set(ancestor,false,forced,true,true);
+            if(ancestor.Name()==L"NonActivatableStack") break;
+            parent=Media::VisualTreeHelper::GetParent(ancestor);
+        }
+    }
+    void DescribeLanguageTree(DependencyObject const& node,std::wstring& result,int& remaining,int depth=0,bool languageRegion=false) {
+        if(depth>24 || remaining<=0) return;
+        auto element=node.try_as<FrameworkElement>();
+        if(!element) return;
+        auto name=element.Name();
+        languageRegion=languageRegion || name==L"NonActivatableStack";
+        int count=Media::VisualTreeHelper::GetChildrenCount(node);
+        if(languageRegion) {
+            remaining--;
+            result+=L"\n"+std::wstring(std::min(depth,12),L' ')+std::wstring(get_class_name(node).c_str()).substr(0,48)+
+                L"#"+std::wstring(name.c_str()).substr(0,32)+L" vis="+
+                (element.Visibility()==Visibility::Visible ? L"V" : L"C")+L" children="+std::to_wstring(count);
+            if(name==L"SystemTrayIcon") result+=L" kind="+std::to_wstring(ContentKind(element));
+            if(auto text=node.try_as<TextBlock>()) result+=L" textPresent="+std::to_wstring(!text.Text().empty());
+        }
+        for(int i=0;i<count && remaining>0;i++)
+            DescribeLanguageTree(Media::VisualTreeHelper::GetChild(node,i),result,remaining,depth+1,languageRegion);
+    }
+    void RecordLanguageState(FrameworkElement const& frame,LONG request,LONG found) noexcept {
+        try {
+            if(!((request|(request>>16))&LanguageMask)) return;
+            wchar_t foregroundClass[64]{};
+            GetClassNameW(GetForegroundWindow(),foregroundClass,64);
+            std::wstring state=L"hide="+std::to_wstring(request&LanguageMask)+L" force="+
+                std::to_wstring((request>>16)&LanguageMask)+L" found="+std::to_wstring(found&LanguageMask)+
+                L" foregroundClass="+foregroundClass+L" modelReads="+std::to_wstring(languageDataReads.load())+
+                L" retained="+std::to_wstring(languageDataRetained.load())+L" unknown="+std::to_wstring(languageDataUnknown.load())+
+                L" primed="+std::to_wstring(languageDataPrimed.load());
+            for(auto const& original:originals) {
+                if(original.forceOnly || !(original.visibilityKind&LanguageMask)) continue;
+                auto element=original.element.get();
+                bool attached=false;
+                if(element) {
+                    DependencyObject parent=element;
+                    for(int depth=0;parent && depth<32;depth++) {
+                        if(parent==frame) { attached=true; break; }
+                        parent=Media::VisualTreeHelper::GetParent(parent);
+                    }
+                }
+                state+=L"\nhost kind="+std::to_wstring(original.visibilityKind)+L" alive="+std::to_wstring(bool(element))+
+                    L" attached="+std::to_wstring(attached);
+            }
+            int remaining=24;
+            DescribeLanguageTree(frame,state,remaining);
+            if(state.size()>1800) state.resize(1800);
+            if(state==lastLanguageState) return;
+            lastLanguageState=state;
+            if(languageTransitions.size()>=8) languageTransitions.erase(languageTransitions.begin());
+            languageTransitions.push_back(L"[tick="+std::to_wstring(GetTickCount64())+L"] "+state);
+            std::wstring trace;
+            for(auto const& transition:languageTransitions) trace+=transition+L"\n\n";
+            auto data=session->data;
+            InterlockedIncrement(&data->languageTraceSequence);
+            wcsncpy_s(data->languageTrace,trace.c_str(),_TRUNCATE);
+            InterlockedIncrement(&data->languageTraceSequence);
+        } catch(...) { /* Diagnostics must never interfere with Explorer visibility control. */ }
+    }
+    void Walk(DependencyObject const& node, LONG mask, LONG restoreMask, LONG& found, LONG& visible, int depth=0, int region=0, bool languageOnly=false) {
         if(depth>32) return;
         auto element=node.try_as<FrameworkElement>();
         if(!element) return;
@@ -171,20 +357,43 @@ struct Context {
         if(name==L"Clock" || type==L"SystemTray.DateTimeIconContent") kind=8;
         if(region==1 && (type==L"SystemTray.TextIconContent" || type==L"SystemTray.BatteryIconContent")) kind=ContentKind(element)&7;
         if(region==2 && name==L"SystemTrayIcon") kind=ContentKind(element)&(16|32|64|128);
-        if(region==3 && name==L"SystemTrayIcon") kind=ContentKind(element)&(256|512);
+        if(region==3 && name==L"SystemTrayIcon") {
+            LONG contentKind=ContentKind(element);
+            kind=contentKind&LanguageMask;
+            if(!contentKind) {
+                LONG known=KnownLanguageKind(element);
+                if(known && ((mask>>16)&known)) {
+                    if(HasTextContent(element)) kind=known;
+                    else {
+                        // Keep a known empty host available for XAML to repopulate.
+                        // It remains absent in Found until real content returns.
+                        Set(element,false,known,true);
+                        GuardLanguageAncestors(element,(mask>>16)&LanguageMask);
+                        return;
+                    }
+                }
+            }
+        }
         if(region==4 && type==L"SystemTray.TextIconContent") kind=1024;
         if(name==L"ShowDesktopStack") kind=2048;
         if(kind) {
+            if(kind&LanguageMask) PrimeLanguageSource(element);
+            if(languageOnly && !(kind&LanguageMask)) return;
             found|=kind;
             IconAppearance appearance{};
-            try { if(session->data->appearanceRequested) ReadAppearance(element,kind,appearance); } catch(...) { /* Appearance is optional. */ }
-            for(int i=0;i<12;i++) if(kind&(1<<i)) {
+            try { if(!languageOnly && session->data->appearanceRequested) ReadAppearance(element,kind,appearance); } catch(...) { /* Appearance is optional. */ }
+            for(int i=0;i<12;i++) if(!languageOnly && (kind&(1<<i))) {
                 icons[i]=appearance;
                 try { if(session->data->appearanceRequested) ReadImage(element,i); } catch(...) { /* Image fallback is independent of visibility. */ }
             }
             if(kind==(16|32)) sharedMicrophoneLocation=true;
             // A combined privacy indicator must remain unless both are requested.
-            Set(element,(mask&kind)==kind);
+            Set(element,(mask&kind)==kind,kind,(kind&LanguageMask) && ((mask>>16)&kind)==kind);
+            if((kind&LanguageMask) && ((mask>>16)&kind)==kind) {
+                int children=Media::VisualTreeHelper::GetChildrenCount(element);
+                for(int i=0;i<children;i++) GuardLanguageContent(Media::VisualTreeHelper::GetChild(element,i),kind);
+                GuardLanguageAncestors(element,(mask>>16)&LanguageMask);
+            }
             // An explicit Show must also recover controls hidden before this DLL
             // instance was loaded (for example, by an earlier application version).
             // Passive scans and session cleanup still preserve the original state.
@@ -194,7 +403,7 @@ struct Context {
             return;
         }
         int count=Media::VisualTreeHelper::GetChildrenCount(node);
-        for(int i=0;i<count;i++) Walk(Media::VisualTreeHelper::GetChild(node,i),mask,restoreMask,found,visible,depth+1,region);
+        for(int i=0;i<count;i++) Walk(Media::VisualTreeHelper::GetChild(node,i),mask,restoreMask,found,visible,depth+1,region,languageOnly);
     }
     void Tick() noexcept {
         if(updating) return;
@@ -202,7 +411,12 @@ struct Context {
         try {
             auto data=session->data;
             if(session->stopped()) {
-                if(data->stop==2 && !session->application) preservedOriginals[window]=std::move(originals);
+                ReleaseLanguageSource(session);
+                UnwatchLayout();
+                if(data->stop==2 && !session->application) {
+                    for(auto& original:originals) Unwatch(original);
+                    preservedOriginals[window]=std::move(originals);
+                }
                 else Restore();
                 KillTimer(nullptr,timer); timer=0;
                 InterlockedDecrement(&data->contexts);
@@ -213,6 +427,7 @@ struct Context {
                     Restore(); frame=TaskbarRoot(window,data); root=make_weak(frame);
                 }
                 if(!frame) { data->found=0; data->hidden=0; throw hresult_error(E_NOTIMPL); }
+                WatchLayout(frame);
                 if(session->application) {
                     session->application->Read(frame);
                     InterlockedIncrement(&data->ticks); data->alive=1;
@@ -224,6 +439,7 @@ struct Context {
                 sharedMicrophoneLocation=false;
                 ZeroMemory(icons,sizeof(icons));
                 Walk(frame,mask,restoreMask,found,visible);
+                RecordLanguageState(frame,mask,found);
                 for(int i=0;i<12;i++) if(!(found&(1<<i)) && data->images[i].width)
                     PublishIconImage(data->images[i],0,0,E_BOUNDS,nullptr);
                 // If an input method switches between text and image content,
@@ -243,7 +459,7 @@ struct Context {
         updating=false;
     }
 };
-thread_local std::vector<std::unique_ptr<Context>> contexts;
+thread_local std::vector<std::shared_ptr<Context>> contexts;
 void CALLBACK Tick(HWND,UINT,UINT_PTR id,DWORD) {
     for(auto& context:contexts) if(context->timer==id) { context->Tick(); break; }
     std::erase_if(contexts,[](auto const& c){return c->timer==0;});
@@ -296,8 +512,10 @@ LRESULT CALLBACK BootstrapHook(int code,WPARAM w,LPARAM l) {
             try {
                 auto frame=TaskbarRoot(request->window,request->session->data);
                 if(!frame) throw hresult_error(E_NOTIMPL);
-                auto context=std::make_unique<Context>();
+                auto context=std::make_shared<Context>();
                 context->session=request->session; context->root=make_weak(frame); context->window=request->window;
+                if(!request->session->application)
+                    request->session->data->languageSourceStatus=InstallLanguageSource(request->session);
                 for(auto& previous:contexts)
                     if(previous->window==request->window && previous->session->stopped()) previous->Tick();
                 std::erase_if(contexts,[](auto const& previous){return previous->timer==0;});
@@ -341,7 +559,7 @@ struct Site : implements<Site,IObjectWithSite> {
             SysFreeString(name);
             if(!session->mapping) return HRESULT_FROM_WIN32(GetLastError());
             session->data=static_cast<Shared*>(MapViewOfFile(session->mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(Shared)));
-            if(!session->data || session->data->version!=2) return E_INVALIDARG;
+            if(!session->data || session->data->version!=4) return E_INVALIDARG;
             session->owner=OpenProcess(SYNCHRONIZE,FALSE,session->data->owner);
             if(!session->owner) return HRESULT_FROM_WIN32(GetLastError());
             auto raw=new std::shared_ptr<Session>(session);
@@ -401,11 +619,53 @@ HRESULT ResolveSymbols(Shared* shared,PCWSTR symbolDirectory=nullptr) {
     for(auto offset:shared->symbols) if(!offset) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     return S_OK;
 }
-HRESULT AttachCore(DWORD pid,PCWSTR mapping,PCWSTR symbolDirectory) noexcept {
+HRESULT ResolveLanguageSource(Shared* shared,PCWSTR symbolDirectory) {
+    if(!symbolDirectory) return E_NOTIMPL;
+    std::lock_guard lock(symbolsMutex);
+    wchar_t windows[MAX_PATH]{};
+    GetWindowsDirectoryW(windows,MAX_PATH);
+    std::wstring path=std::wstring(windows)+L"\\SystemApps\\MicrosoftWindows.Client.Core_cw5n1h2txyewy\\SystemTray.dll";
+    HANDLE process=GetCurrentProcess();
+    SymSetOptions(SYMOPT_DEFERRED_LOADS|SYMOPT_FAIL_CRITICAL_ERRORS|SYMOPT_EXACT_SYMBOLS);
+    if(!SymInitializeW(process,symbolDirectory,FALSE)) return HRESULT_FROM_WIN32(GetLastError());
+    auto base=SymLoadModuleExW(process,nullptr,path.c_str(),L"TrayPilotLanguageSource",0,0,nullptr,0);
+    IMAGEHLP_MODULEW64 info{sizeof(info)};
+    if(base && SymGetModuleInfoW64(process,base,&info)) {
+        shared->languageSourceSymbols[0]=info.TimeDateStamp;
+        shared->languageSourceSymbols[1]=info.ImageSize;
+    }
+    struct Search { ULONG64 base; Shared* data; } query{base,shared};
+    BOOL success=base && SymEnumSymbolsW(process,base,L"*",[](PSYMBOL_INFOW symbol,ULONG,void* parameter)->BOOL {
+        auto q=static_cast<Search*>(parameter);
+        std::wstring_view name(symbol->Name,symbol->NameLen);
+        const wchar_t* identifiers[]={
+            L"??_7?$produce@UImeSystemTrayIconDataModel@implementation@SystemTray@winrt@@UIIconDataModel@34@@impl@winrt@@6B@",
+            L"?get_CurrentData@?$produce@UImeSystemTrayIconDataModel@implementation@SystemTray@winrt@@UIIconDataModel@34@@impl@winrt@@",
+            L"??_7?$produce@ULanguageSystemTrayIconDataModel@implementation@SystemTray@winrt@@UIIconDataModel@34@@impl@winrt@@6B@",
+            L"?get_CurrentData@?$produce@ULanguageSystemTrayIconDataModel@implementation@SystemTray@winrt@@UIIconDataModel@34@@impl@winrt@@",
+            L"??_7?$produce@UIconData@implementation@SystemTray@winrt@@UIIconData@34@@impl@winrt@@6B@",
+            L"?get_ContentMetadata@?$produce@UIconData@implementation@SystemTray@winrt@@UIIconData@34@@impl@winrt@@",
+            L"??_7?$produce@UIconContentMetadata@implementation@SystemTray@winrt@@UIIconContentMetadata@34@@impl@winrt@@6B@",
+            L"?get_RequestingDisplay@?$produce@UIconContentMetadata@implementation@SystemTray@winrt@@UIIconContentMetadata@34@@impl@winrt@@",
+            L"??_7?$produce@UIconViewModel@implementation@SystemTray@winrt@@UIIconViewModel@34@@impl@winrt@@6B@",
+            L"?get_Configuration@?$produce@UIconViewModel@implementation@SystemTray@winrt@@UIIconViewModel@34@@impl@winrt@@",
+            L"??_7?$produce@UIconConfiguration@implementation@SystemTray@winrt@@UIIconConfiguration@34@@impl@winrt@@6B@",
+            L"?get_DataModel@?$produce@UIconConfiguration@implementation@SystemTray@winrt@@UIIconConfiguration@34@@impl@winrt@@"
+        };
+        for(int i=0;i<12;i++) if(name.starts_with(identifiers[i])) q->data->languageSourceSymbols[i+2]=symbol->Address-q->base;
+        return TRUE;
+    },&query);
+    SymCleanup(process);
+    if(!success) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    for(auto offset:shared->languageSourceSymbols) if(!offset) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    return S_OK;
+}
+HRESULT AttachCore(DWORD pid,PCWSTR mapping,PCWSTR symbolDirectory,PCWSTR sourceSymbols=nullptr) noexcept {
     HANDLE map=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,mapping);
     if(!map) return HRESULT_FROM_WIN32(GetLastError());
     auto data=static_cast<Shared*>(MapViewOfFile(map,FILE_MAP_ALL_ACCESS,0,0,sizeof(Shared)));
     HRESULT resolved=data?ResolveSymbols(data,symbolDirectory):E_FAIL;
+    if(data) data->languageSourceStatus=ResolveLanguageSource(data,sourceSymbols);
     if(data) UnmapViewOfFile(data); CloseHandle(map);
     if(FAILED(resolved)) return resolved;
     wchar_t path[32768]; if(!GetModuleFileNameW(module,path,32768)) return HRESULT_FROM_WIN32(GetLastError());
@@ -427,5 +687,8 @@ extern "C" __declspec(dllexport) HRESULT __stdcall Attach(DWORD pid,PCWSTR mappi
 }
 extern "C" __declspec(dllexport) HRESULT __stdcall AttachWithSymbols(DWORD pid,PCWSTR mapping,PCWSTR symbolDirectory) noexcept {
     return AttachCore(pid,mapping,symbolDirectory);
+}
+extern "C" __declspec(dllexport) HRESULT __stdcall AttachWithSourceSymbols(DWORD pid,PCWSTR mapping,PCWSTR symbolDirectory,PCWSTR sourceSymbols) noexcept {
+    return AttachCore(pid,mapping,symbolDirectory,sourceSymbols);
 }
 BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,void*) { if(reason==DLL_PROCESS_ATTACH) module=instance; return TRUE; }

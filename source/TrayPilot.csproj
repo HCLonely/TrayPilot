@@ -16,7 +16,7 @@
     <EmbeddedResource Include="languages\*.json" LogicalName="TrayPilot.languages.%(Filename)%(Extension)" />
     <EmbeddedResource Include="native\bin\TrayPilot.Xaml.dll" LogicalName="TrayPilot.native.TrayPilot.Xaml.dll" />
   </ItemGroup>
-  <Target Name="BuildTaskbarHelper" BeforeTargets="PrepareForBuild" Inputs="native\TrayPilot.Xaml.cpp;native\IconImages.h;native\NotifyImageProbe.h;native\ApplicationModelImages.h;native\build.ps1" Outputs="native\bin\TrayPilot.Xaml.dll">
+  <Target Name="BuildTaskbarHelper" BeforeTargets="PrepareForBuild" Inputs="native\TrayPilot.Xaml.cpp;native\LanguageSource.h;native\IconImages.h;native\NotifyImageProbe.h;native\ApplicationModelImages.h;native\build.ps1" Outputs="native\bin\TrayPilot.Xaml.dll">
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\native\build.ps1&quot;" />
   </Target>
   <Import Project="GitVersion.targets" />
